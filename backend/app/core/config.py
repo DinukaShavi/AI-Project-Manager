@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     REDIS_HOST: str = "redis"
     REDIS_PORT: str = "6379"
     REDIS_URL: Optional[str] = None
+    USE_REDIS: bool = True
 
     @property
     def redis_url_str(self) -> str:

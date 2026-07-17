@@ -22,13 +22,17 @@ from app.core.config import settings
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
+from app.workers.event_worker import event_worker
+
 @app.on_event("startup")
 async def startup_event():
     logger.info("Initializing AI-TPM API service...")
+    await event_worker.start()
 
 @app.on_event("shutdown")
 async def shutdown_event():
     logger.info("Shutting down AI-TPM API service...")
+    await event_worker.stop()
 
 @app.get("/health", status_code=200)
 async def health_check():
