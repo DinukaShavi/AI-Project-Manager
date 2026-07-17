@@ -18,11 +18,11 @@ SessionLocal = async_sessionmaker(
 )
 
 # 2. Sync Engine & Sessionmaker (Fallback / Alembic env helper)
-# Convert postgresql+asyncpg -> postgresql for standard psycopg2 sync operations
-sync_url = settings.async_database_url.replace("postgresql+asyncpg://", "postgresql://")
-sync_engine = create_engine(sync_url, pool_pre_ping=True)
-SyncSessionLocal = sessionmaker(
-    bind=sync_engine,
-    autocommit=False,
-    autoflush=False
-)
+# Commented out to avoid psycopg2 dependency since the application uses async connections exclusively.
+# sync_url = settings.async_database_url.replace("postgresql+asyncpg://", "postgresql://")
+# sync_engine = create_engine(sync_url, pool_pre_ping=True)
+# SyncSessionLocal = sessionmaker(
+#     bind=sync_engine,
+#     autocommit=False,
+#     autoflush=False
+# )

@@ -17,6 +17,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from app.api.v1.router import api_router
+from app.core.config import settings
+
+app.include_router(api_router, prefix=settings.API_V1_STR)
+
 @app.on_event("startup")
 async def startup_event():
     logger.info("Initializing AI-TPM API service...")

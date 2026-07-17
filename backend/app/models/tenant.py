@@ -48,6 +48,7 @@ class User(Base, SoftDeleteMixin):
     organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
     email = Column(String(255), unique=True, nullable=False, index=True)
     full_name = Column(String(255), nullable=False)
+    hashed_password = Column(String(255), nullable=False)
     avatar_url = Column(Text, nullable=True)
 
     # Relationships
