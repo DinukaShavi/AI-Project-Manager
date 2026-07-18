@@ -32,6 +32,10 @@ class Settings(BaseSettings):
             return url
         return f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
 
+    # HuggingFace Configuration
+    HUGGINGFACE_API_TOKEN: Optional[str] = None
+    HUGGINGFACE_MODEL: str = "mistralai/Mistral-7B-Instruct-v0.3"
+
     # Redis Configuration
     REDIS_HOST: str = "redis"
     REDIS_PORT: str = "6379"

@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
+import app.db.base  # Register ALL SQLAlchemy models before any mapper resolves relationships
 from app.core.middleware import SecurityHeadersMiddleware, RateLimitingMiddleware
 
 app = FastAPI(
@@ -27,6 +28,7 @@ from app.core.config import settings
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
+# Import worker AFTER all models are registered via app.db.base above
 from app.workers.event_worker import event_worker
 
 @app.on_event("startup")

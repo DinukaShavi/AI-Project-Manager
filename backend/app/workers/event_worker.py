@@ -1,5 +1,6 @@
 import asyncio
 from loguru import logger
+import app.db.base  # Ensure all models registered before OutboxService resolves mappers
 from app.db.session import SessionLocal
 from app.services.outbox import OutboxService
 from app.events.redis_bus import get_event_bus

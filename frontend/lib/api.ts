@@ -85,7 +85,7 @@ export async function executeAgentPersona(agentType: string, taskInput: string, 
     method: "POST",
     body: JSON.stringify({
       agent_type: agentType,
-      task_input: taskInput,
+      task: taskInput,           // backend schema field is 'task' not 'task_input'
       organization_id: orgId,
       project_id: projectId,
     }),
