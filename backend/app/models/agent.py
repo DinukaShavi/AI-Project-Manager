@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, ForeignKey, Text, UniqueConstraint
+from sqlalchemy import Column, String, Integer, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from app.db.base_class import Base
@@ -27,11 +27,17 @@ class ModelConfiguration(Base):
 class AgentExecution(Base):
     __tablename__ = "agent_executions"
 
+    organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=True)
     workflow_execution_id = Column(UUID(as_uuid=True), ForeignKey("workflow_executions.id", ondelete="SET NULL"), nullable=True)
     agent_name = Column(String(50), nullable=False)
+    agent_role = Column(String(100), nullable=True)
     status = Column(String(50), nullable=False, default="running")
     thought_log = Column(Text, nullable=True)
+    input_payload = Column(JSONB, nullable=True)
+    output_payload = Column(JSONB, nullable=True)
     agent_output = Column(JSONB, nullable=True)
+    execution_time_ms = Column(Integer, nullable=True, default=0)
 
     # Relationships
     workflow_execution = relationship("WorkflowExecution", back_populates="agent_executions")
