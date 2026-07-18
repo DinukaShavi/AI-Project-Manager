@@ -1,9 +1,10 @@
 from uuid import UUID
 from fastapi import APIRouter, Depends, status
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_db
 from app.models.project import ProjectTask
+from app.services.analytics import AnalyticsService
 
 router = APIRouter()
 
@@ -24,7 +25,7 @@ async def get_sprint_analytics(
 
     total_points = sum(t.story_points or 0 for t in tasks)
     completed_points = sum(t.story_points or 0 for t in completed_tasks)
-    completion_rate = (completed_points / total_points * 100.0) if total_points > 0 else 0.0
+    completion_rate = round((completed_points / total_points * 100.0) if total_points > 0 else 0.0, 2)
 
     # Risk score index (0.0 to 1.0) based on uncompleted high priority tasks
     risk_score = min(1.0, len(high_risk_tasks) * 0.25)
@@ -38,7 +39,29 @@ async def get_sprint_analytics(
         "high_risk_open_tasks": len(high_risk_tasks),
         "total_story_points": total_points,
         "completed_story_points": completed_points,
-        "completion_rate_percentage": round(completion_rate, 2),
-        "delivery_risk_index": round(risk_score, 2),
-        "risk_level": "low" if risk_score < 0.3 else ("medium" if risk_score < 0.7 else "high")
+        "completion_rate_percentage": completion_rate,
+        "delivery_risk_index": risk_score,
+        "risk_level": "low" if risk_score < 0.3 else "medium" if risk_score < 0.7 else "high"
     }
+
+@router.get("/burndown", status_code=status.HTTP_200_OK)
+async def get_burndown_chart(
+    project_id: UUID,
+    total_days: int = 14,
+    elapsed_days: int = 7,
+    db: AsyncSession = Depends(get_db)
+):
+    """Retrieve ideal vs actual burndown chart trajectory data."""
+    service = AnalyticsService(db)
+    return await service.get_burndown_chart(project_id, total_days=total_days, elapsed_days=elapsed_days)
+
+@router.get("/predict-completion", status_code=status.HTTP_200_OK)
+async def predict_completion(
+    project_id: UUID,
+    elapsed_days: int = 7,
+    total_sprint_days: int = 14,
+    db: AsyncSession = Depends(get_db)
+):
+    """Predict sprint completion date, delay probability, and risk assessment."""
+    service = AnalyticsService(db)
+    return await service.predict_completion_forecast(project_id, elapsed_days=elapsed_days, total_sprint_days=total_sprint_days)
