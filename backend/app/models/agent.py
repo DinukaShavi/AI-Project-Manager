@@ -55,3 +55,12 @@ class ToolExecution(Base):
 
     # Relationships
     agent_execution = relationship("AgentExecution", back_populates="tool_executions")
+
+class AgentPlan(Base):
+    __tablename__ = "agent_plans"
+
+    organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="SET NULL"), nullable=True)
+    goal = Column(Text, nullable=False)
+    status = Column(String(50), nullable=False, default="generated") # 'generated', 'executing', 'executed', 'failed'
+    plan_steps = Column(JSONB, nullable=False, default=list)
