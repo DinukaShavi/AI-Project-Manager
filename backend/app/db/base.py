@@ -9,6 +9,7 @@ from app.models.agent import PromptVersion, ModelConfiguration, AgentExecution, 
 from app.models.recommendation import Recommendation # noqa
 from app.models.memory import AgentMemory # noqa
 from app.models.graph import ContextSnapshot, KnowledgeGraphEdge # noqa
+from app.models.context import ContextChunk, ContextEmbedding # noqa
 from app.models.analytics import AnalyticsMetric # noqa
 from app.models.notification import Notification # noqa
 from app.models.audit import AuditLog # noqa
