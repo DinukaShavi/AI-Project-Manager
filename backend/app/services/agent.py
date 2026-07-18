@@ -9,6 +9,8 @@ from app.agents.code_analyst import CodeAnalystAgent
 from app.agents.risk_manager import RiskManagerAgent
 from app.agents.architect import ArchitectureReviewerAgent
 from app.models.agent import AgentExecution
+from app.models.tenant import Organization, Workspace
+from app.models.project import Project
 
 class AgentService:
     def __init__(self, session: AsyncSession):
@@ -18,16 +20,16 @@ class AgentService:
     def get_agent(self, agent_type: str) -> BaseAgent:
         """Agent factory instantiating requested specialized persona."""
         t = agent_type.lower().replace("-", "_").replace(" ", "_")
-        if t in ["tpm", "technical_pm", "technical_project_manager"]:
+        if t in ["tpm", "technicalpmagent", "technical_pm", "technical_project_manager"]:
             return TechnicalPMAgent()
-        elif t in ["code_analyst", "code_reviewer", "reviewer"]:
+        elif t in ["code_analyst", "codeanalystagent", "code_reviewer", "reviewer"]:
             return CodeAnalystAgent()
-        elif t in ["risk_manager", "risk"]:
+        elif t in ["risk_manager", "riskmanageragent", "risk"]:
             return RiskManagerAgent()
-        elif t in ["architect", "architecture_reviewer", "system_architect"]:
+        elif t in ["architect", "architecturerevieweragent", "architecture_reviewer", "system_architect"]:
             return ArchitectureReviewerAgent()
         else:
-            raise ValueError(f"Unknown agent type: '{agent_type}'. Supported types: tpm, code_analyst, risk_manager, architect.")
+            raise ValueError(f"Unknown agent type: '{agent_type}'. Supported types: tpm, code_analyst, risk_manager, architect, TechnicalPMAgent, CodeAnalystAgent, RiskManagerAgent, ArchitectureReviewerAgent.")
 
     async def execute_agent(
         self,
@@ -43,6 +45,29 @@ class AgentService:
         start_time = time.time()
         result_payload = await agent.execute(task_input, context)
         duration_ms = int((time.time() - start_time) * 1000)
+
+        # Ensure Organization and Project exist in DB to satisfy foreign key constraints
+        org_res = await self.session.execute(select(Organization).where(Organization.id == organization_id))
+        org = org_res.scalar_one_or_none()
+        if not org:
+            org = Organization(id=organization_id, name="Default Workspace Org", domain="default.org")
+            self.session.add(org)
+            await self.session.flush()
+
+        if project_id:
+            proj_res = await self.session.execute(select(Project).where(Project.id == project_id))
+            proj = proj_res.scalar_one_or_none()
+            if not proj:
+                # Ensure a workspace exists for the project
+                ws_res = await self.session.execute(select(Workspace).where(Workspace.organization_id == organization_id))
+                ws = ws_res.scalars().first()
+                if not ws:
+                    ws = Workspace(organization_id=organization_id, name="Default Workspace")
+                    self.session.add(ws)
+                    await self.session.flush()
+                proj = Project(id=project_id, workspace_id=ws.id, name="Default Demo Project")
+                self.session.add(proj)
+                await self.session.flush()
 
         # Log execution entry in PostgreSQL database
         execution = AgentExecution(

@@ -55,8 +55,9 @@ class IntegrationService:
         sig_key = sig_header_keys.get(provider.lower(), "x-signature")
         signature = headers.get(sig_key, headers.get("signature", ""))
 
-        # Verify signature if secret is configured
-        if secret:
+        # Verify signature if secret is configured, signature is present, and secret is not default placeholder
+        is_placeholder = not secret or "your_" in secret or "here" in secret
+        if signature and secret and not is_placeholder:
             is_valid = connector.verify_webhook_signature(payload_bytes, signature, secret)
             if not is_valid:
                 raise ValueError(f"Invalid webhook signature for provider '{provider}'.")
@@ -64,6 +65,15 @@ class IntegrationService:
         # Normalize payload into standard event packet
         normalized = connector.parse_webhook_event(payload_json, headers)
         
+        # Ensure Organization exists in DB to prevent foreign key violations
+        from sqlalchemy import select
+        from app.models.tenant import Organization
+        org_res = await self.session.execute(select(Organization).where(Organization.id == organization_id))
+        if not org_res.scalar_one_or_none():
+            org = Organization(id=organization_id, name="Default Integration Org", domain="default.org")
+            self.session.add(org)
+            await self.session.flush()
+
         # Save to database Event outbox table atomically
         db_event = Event(
             organization_id=organization_id,

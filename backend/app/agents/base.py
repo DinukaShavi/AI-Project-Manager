@@ -3,12 +3,9 @@ from typing import Any, Dict, Optional
 import httpx
 from app.core.config import settings
 
-# HuggingFace Inference API endpoint
-HF_INFERENCE_URL = "https://api-inference.huggingface.co/models/{model}"
-
-# Best free models for instruction-following tasks on HuggingFace
-# Using Mistral-7B-Instruct as the default — fast, free, and high quality
-DEFAULT_HF_MODEL = "mistralai/Mistral-7B-Instruct-v0.3"
+# HuggingFace OpenAI-compatible Router API Endpoint
+HF_ROUTER_URL = "https://router.huggingface.co/v1/chat/completions"
+DEFAULT_HF_MODEL = "Qwen/Qwen2.5-Coder-32B-Instruct"
 
 
 class BaseAgent(ABC):
@@ -25,52 +22,42 @@ class BaseAgent(ABC):
             ctx_str = "\nActive Project Context:\n" + "\n".join(ctx_items)
         return f"System Role: {self.role}\n{self.system_prompt}\n{ctx_str}"
 
-    def _build_hf_prompt(self, system_prompt: str, user_prompt: str) -> str:
-        """Build Mistral-style instruction prompt format: <s>[INST] ... [/INST]"""
-        return f"<s>[INST] {system_prompt}\n\n{user_prompt} [/INST]"
-
     async def _llm_call(self, prompt: str, system_prompt: str) -> str:
         """
-        Execute LLM call using HuggingFace Inference API.
+        Execute LLM call using HuggingFace Router API (OpenAI-compatible endpoint).
         Falls back to rich synthetic reasoning if no HF token is configured.
         """
         hf_token = getattr(settings, "HUGGINGFACE_API_TOKEN", None)
         hf_model = getattr(settings, "HUGGINGFACE_MODEL", DEFAULT_HF_MODEL)
 
         if hf_token and hf_token.strip() and not hf_token.startswith("hf_your"):
-            full_prompt = self._build_hf_prompt(system_prompt, prompt)
             headers = {
                 "Authorization": f"Bearer {hf_token}",
                 "Content-Type": "application/json",
             }
             payload = {
-                "inputs": full_prompt,
-                "parameters": {
-                    "max_new_tokens": 800,
-                    "temperature": 0.4,
-                    "do_sample": True,
-                    "return_full_text": False,
-                },
-                "options": {
-                    "wait_for_model": True,   # Wait if model is loading (free tier)
-                    "use_cache": False,
-                }
+                "model": hf_model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.3,
+                "max_tokens": 800
             }
-            url = HF_INFERENCE_URL.format(model=hf_model)
             try:
-                async with httpx.AsyncClient(timeout=60.0) as client:
-                    res = await client.post(url, headers=headers, json=payload)
+                async with httpx.AsyncClient(timeout=45.0) as client:
+                    res = await client.post(HF_ROUTER_URL, headers=headers, json=payload)
                     res.raise_for_status()
                     data = res.json()
 
-                    # HF returns list of generated_text objects
-                    if isinstance(data, list) and len(data) > 0:
-                        return data[0].get("generated_text", str(data))
+                    # Extract OpenAI-formatted choice content
+                    if "choices" in data and len(data["choices"]) > 0:
+                        return data["choices"][0]["message"]["content"]
                     return str(data)
 
             except httpx.HTTPStatusError as e:
                 error_body = e.response.text
-                raise RuntimeError(f"HuggingFace API error {e.response.status_code}: {error_body}")
+                raise RuntimeError(f"HuggingFace Router API error {e.response.status_code}: {error_body}")
             except Exception as e:
                 raise RuntimeError(f"HuggingFace request failed: {str(e)}")
         else:

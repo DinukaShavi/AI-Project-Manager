@@ -34,7 +34,17 @@ class Settings(BaseSettings):
 
     # HuggingFace Configuration
     HUGGINGFACE_API_TOKEN: Optional[str] = None
-    HUGGINGFACE_MODEL: str = "mistralai/Mistral-7B-Instruct-v0.3"
+    HUGGINGFACE_MODEL: str = "Qwen/Qwen2.5-Coder-32B-Instruct"
+
+    # Integration Credentials
+    GITHUB_WEBHOOK_SECRET: Optional[str] = None
+    SLACK_BOT_TOKEN: Optional[str] = None
+    SLACK_SIGNING_SECRET: Optional[str] = None
+    JIRA_BASE_URL: Optional[str] = None
+    JIRA_EMAIL: Optional[str] = None
+    JIRA_API_TOKEN: Optional[str] = None
+    GOOGLE_CLIENT_ID: Optional[str] = None
+    GOOGLE_CLIENT_SECRET: Optional[str] = None
 
     # Redis Configuration
     REDIS_HOST: str = "redis"
