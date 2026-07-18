@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.v1 import auth, users, integrations, context, agents, tools
+from app.api.v1 import auth, users, integrations, context, agents, tools, workflows
 
 api_router = APIRouter()
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
@@ -8,3 +8,4 @@ api_router.include_router(integrations.router, prefix="/integrations", tags=["in
 api_router.include_router(context.router, prefix="/context", tags=["context"])
 api_router.include_router(agents.router, prefix="/agents", tags=["agents"])
 api_router.include_router(tools.router, prefix="/tools", tags=["tools"])
+api_router.include_router(workflows.router, prefix="/workflows", tags=["workflows"])
