@@ -1,12 +1,17 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
+from app.core.middleware import SecurityHeadersMiddleware, RateLimitingMiddleware
 
 app = FastAPI(
     title="AI-Powered Technical Project Manager API",
     description="Backend API services for context-centric multi-agent coordination.",
     version="1.0.0",
 )
+
+# Register Security & Rate Limiting Middlewares
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(RateLimitingMiddleware, max_requests=120, window_seconds=60)
 
 # Configure CORS Middleware
 app.add_middleware(

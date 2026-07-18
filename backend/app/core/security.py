@@ -1,8 +1,15 @@
+import html
 from datetime import datetime, timedelta, timezone
 from typing import Any, Union, Optional
 from jose import jwt, JWTError
 from passlib.context import CryptContext
 from app.core.config import settings
+
+def sanitize_string(input_text: str) -> str:
+    """Sanitize input strings by escaping HTML and dangerous injection tags."""
+    if not input_text:
+        return ""
+    return html.escape(input_text.strip())
 
 # Passlib Crypt Context for password hashing
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
