@@ -33,7 +33,7 @@ async def test_db_operations():
         await session.flush()
         print(f"Inserted Workspace: ID={workspace.id}, name={workspace.name}")
 
-        user = User(organization_id=org.id, email=f"alice-{suffix}@acme.com", full_name="Alice Smith")
+        user = User(organization_id=org.id, email=f"alice-{suffix}@acme.com", full_name="Alice Smith", hashed_password="pbkdf2_sha256_mock_hash")
         session.add(user)
         await session.flush()
         print(f"Inserted User: ID={user.id}, email={user.email}")
