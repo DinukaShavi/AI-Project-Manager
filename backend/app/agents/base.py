@@ -9,6 +9,8 @@ HF_ROUTER_URL = "https://router.huggingface.co/v1/chat/completions"
 DEFAULT_HF_MODEL = "Qwen/Qwen2.5-Coder-32B-Instruct"
 
 
+from app.agents.prompt_manager import get_prompt_manager, PromptContextItem
+
 class BaseAgent(ABC):
     def __init__(self, agent_name: str, role: str, system_prompt: str):
         self.agent_name = agent_name
@@ -16,12 +18,26 @@ class BaseAgent(ABC):
         self.system_prompt = system_prompt
 
     def format_system_prompt(self, context: Optional[Dict[str, Any]] = None) -> str:
-        """Format base system prompt with injected context variables."""
-        ctx_str = ""
-        if context:
-            ctx_items = [f"- {k}: {v}" for k, v in context.items()]
-            ctx_str = "\nActive Project Context:\n" + "\n".join(ctx_items)
-        return f"System Role: {self.role}\n{self.system_prompt}\n{ctx_str}"
+        """Format base system prompt with budget-managed context variables."""
+        base_prompt = f"System Role: {self.role}\n{self.system_prompt}"
+        if not context:
+            return base_prompt
+
+        ctx_items = []
+        for k, v in context.items():
+            if isinstance(v, list):
+                val_str = "\n".join(str(i) for i in v)
+            else:
+                val_str = str(v)
+            cat = k.lower() if k.lower() in ("jira_issues", "slack_summaries", "vector_memories", "git_diffs") else "user_query"
+            ctx_items.append(PromptContextItem(category=cat, content=f"{k}: {val_str}"))
+
+        prompt_mgr = get_prompt_manager()
+        return prompt_mgr.assemble_prompt(
+            system_prompt=base_prompt,
+            user_query="Context Configuration",
+            context_items=ctx_items
+        )
 
     async def _llm_call(self, prompt: str, system_prompt: str) -> str:
         """
