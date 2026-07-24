@@ -4,6 +4,8 @@ from app.tools.registry import get_tool_registry, ToolRegistry
 from app.services.tool import ToolService
 from app.db.session import SessionLocal
 
+from app.core.rbac_pdp import get_pdp, ToolCallAuthorizationRequest, UserRole, RiskLevel
+
 class ToolExecutor:
     """Tool execution engine handling capability matching, Pydantic schema validations, RBAC permissions, approval gates, and Saga rollbacks."""
 
@@ -15,28 +17,40 @@ class ToolExecutor:
         "slack_broadcast_all"
     }
 
-    ROLE_PERMISSIONS_MAP = {
-        "delete_repository": ["SuperAdmin"],
-        "deploy_release": ["SuperAdmin", "OrgAdmin", "ProjectManager"],
-        "merge_pull_request": ["SuperAdmin", "OrgAdmin", "ProjectManager", "Developer"],
-        "jira_update_issue_status": ["SuperAdmin", "OrgAdmin", "ProjectManager", "Developer"],
-        "slack_post_message": ["SuperAdmin", "OrgAdmin", "ProjectManager", "Developer", "Viewer"]
-    }
-
     def __init__(self, registry: Optional[ToolRegistry] = None):
         self.registry = registry or get_tool_registry()
         self.compensation_registry: Dict[str, Callable[[Dict[str, Any]], Any]] = {}
+        self.pdp = get_pdp()
 
     def requires_approval(self, tool_name: str) -> bool:
         """Check if a tool action requires human-in-the-loop approval."""
         return tool_name in self.HIGH_RISK_SIDE_EFFECT_TOOLS
 
     def check_permission(self, tool_name: str, user_role: str) -> bool:
-        """Evaluate RBAC permissions for tool invocation."""
-        allowed_roles = self.ROLE_PERMISSIONS_MAP.get(tool_name)
-        if allowed_roles is None:
-            return True
-        return user_role in allowed_roles
+        """Evaluate RBAC permissions using PolicyDecisionPoint PDP engine."""
+        role_enum = UserRole.DEVELOPER
+        try:
+            role_enum = UserRole(user_role)
+        except ValueError:
+            # Map legacy string role names
+            role_map = {
+                "superadmin": UserRole.SUPER_ADMIN,
+                "orgadmin": UserRole.ORG_ADMIN,
+                "projectmanager": UserRole.PROJECT_MANAGER,
+                "developer": UserRole.DEVELOPER,
+                "viewer": UserRole.VIEWER
+            }
+            role_enum = role_map.get(user_role.lower().replace(" ", "").replace("_", ""), UserRole.DEVELOPER)
+
+        risk = RiskLevel.HIGH if tool_name in self.HIGH_RISK_SIDE_EFFECT_TOOLS else RiskLevel.LOW
+        req = ToolCallAuthorizationRequest(
+            user_id=str(uuid.uuid4()),
+            role=role_enum,
+            tool_name=tool_name,
+            risk_level=risk
+        )
+        resp = self.pdp.evaluate_tool_call(req)
+        return resp.authorized
 
     def register_compensation(self, tool_name: str, rollback_func: Callable[[Dict[str, Any]], Any]) -> None:
         """Register a Saga compensating action for a side-effect tool."""
@@ -50,8 +64,8 @@ class ToolExecutor:
         approval_token: Optional[str] = None,
         agent_execution_id: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Validate, check approval, and execute tool call."""
-        # 1. RBAC Check
+        """Validate, check approval via PDP, and execute tool call."""
+        # 1. PDP Check
         if not self.check_permission(tool_name, user_role):
             return {
                 "status": "PERMISSION_DENIED",
