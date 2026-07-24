@@ -21,15 +21,16 @@ from tests.test_project_intelligence import test_project_intelligence_flow
 from tests.test_oauth_system import test_oauth_system_flow
 from tests.test_agent_state_machine import test_agent_state_machine_flow
 from tests.test_distributed_lock import test_distributed_lock_flow
+from tests.test_circuit_breaker import test_circuit_breaker_flow
 
 async def run_master_qa_suite():
     print("========================================================================")
-    print("        STARTING MASTER REGRESSION QA TEST SUITE (PHASES 1-19)          ")
+    print("        STARTING MASTER REGRESSION QA TEST SUITE (PHASES 1-20)          ")
     print("========================================================================")
     
     start_time = time.time()
     passed_suites = 0
-    total_suites = 19
+    total_suites = 20
 
     test_suites = [
         ("Phase 1: Database Foundation", test_db_operations),
@@ -41,6 +42,7 @@ async def run_master_qa_suite():
         ("Phase 5: Context Engine & Vector Search", test_context_engine_flow),
         ("Phase 6: AI Agent Framework Personas", test_agent_framework_flow),
         ("Phase 6b: Agent Lifecycle State Machine", test_agent_state_machine_flow),
+        ("Phase 6c: LLM Timeout & Circuit Breaker Router", test_circuit_breaker_flow),
         ("Phase 7: Tool Registry & Execution Logging", test_tool_registry_flow),
         ("Phase 8: Workflow Engine Multi-Agent DAGs", test_workflow_engine_flow),
         ("Phase 9: Memory System Vector Recall", test_memory_system_flow),
@@ -52,6 +54,7 @@ async def run_master_qa_suite():
         ("Phase 15b: Row-Level Security (RLS) Tenant Isolation", test_rls_isolation_flow),
         ("Phase 16: Project Intelligence Engine Core", test_project_intelligence_flow),
     ]
+
 
 
 

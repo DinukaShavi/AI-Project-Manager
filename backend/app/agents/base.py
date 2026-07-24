@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
 import httpx
 from app.core.config import settings
+from app.core.circuit_breaker import get_circuit_breaker
 
 # HuggingFace OpenAI-compatible Router API Endpoint
 HF_ROUTER_URL = "https://router.huggingface.co/v1/chat/completions"
@@ -24,45 +25,46 @@ class BaseAgent(ABC):
 
     async def _llm_call(self, prompt: str, system_prompt: str) -> str:
         """
-        Execute LLM call using HuggingFace Router API (OpenAI-compatible endpoint).
-        Falls back to rich synthetic reasoning if no HF token is configured.
+        Execute LLM call using HuggingFace Router API wrapped with Circuit Breaker & Exponential Backoff.
+        Falls back to rich synthetic reasoning if no HF token is configured or API circuit is OPEN.
         """
         hf_token = getattr(settings, "HUGGINGFACE_API_TOKEN", None)
         hf_model = getattr(settings, "HUGGINGFACE_MODEL", DEFAULT_HF_MODEL)
 
-        if hf_token and hf_token.strip() and not hf_token.startswith("hf_your"):
-            headers = {
-                "Authorization": f"Bearer {hf_token}",
-                "Content-Type": "application/json",
-            }
-            payload = {
-                "model": hf_model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": prompt}
-                ],
-                "temperature": 0.3,
-                "max_tokens": 800
-            }
-            try:
-                async with httpx.AsyncClient(timeout=45.0) as client:
-                    res = await client.post(HF_ROUTER_URL, headers=headers, json=payload)
-                    res.raise_for_status()
-                    data = res.json()
-
-                    # Extract OpenAI-formatted choice content
-                    if "choices" in data and len(data["choices"]) > 0:
-                        return data["choices"][0]["message"]["content"]
-                    return str(data)
-
-            except httpx.HTTPStatusError as e:
-                error_body = e.response.text
-                raise RuntimeError(f"HuggingFace Router API error {e.response.status_code}: {error_body}")
-            except Exception as e:
-                raise RuntimeError(f"HuggingFace request failed: {str(e)}")
-        else:
-            # Local synthetic reasoning fallback when no HF token is configured
+        async def fallback_supplier():
             return self._generate_synthetic_response(prompt, system_prompt)
+
+        if not (hf_token and hf_token.strip() and not hf_token.startswith("hf_your")):
+            return await fallback_supplier()
+
+        headers = {
+            "Authorization": f"Bearer {hf_token}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": hf_model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.3,
+            "max_tokens": 800
+        }
+
+        async def execute_remote():
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                res = await client.post(HF_ROUTER_URL, headers=headers, json=payload)
+                res.raise_for_status()
+                data = res.json()
+                if "choices" in data and len(data["choices"]) > 0:
+                    return data["choices"][0]["message"]["content"]
+                return str(data)
+
+        circuit_breaker = get_circuit_breaker()
+        return await circuit_breaker.call_with_circuit_breaker(
+            coro_fn=execute_remote,
+            fallback_fn=fallback_supplier
+        )
 
     def _generate_synthetic_response(self, prompt: str, system_prompt: str) -> str:
         """
