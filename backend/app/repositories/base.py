@@ -23,6 +23,12 @@ class BaseRepository(Generic[ModelType]):
 
     async def create(self, obj_in: ModelType) -> ModelType:
         """Insert a new model instance into the database."""
+        if hasattr(self.model, "organization_id") and getattr(obj_in, "organization_id", None) is None:
+            from sqlalchemy import text
+            res = await self.session.execute(text("SELECT current_setting('app.current_tenant_id', true)"))
+            tenant_id = res.scalar()
+            if tenant_id and tenant_id.strip():
+                setattr(obj_in, "organization_id", tenant_id)
         self.session.add(obj_in)
         await self.session.flush()
         return obj_in

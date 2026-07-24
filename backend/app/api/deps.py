@@ -37,4 +37,8 @@ async def get_current_user(
     user = await user_service.get_by_id(user_id)
     if not user or user.is_deleted:
         raise credentials_exception
+    
+    from app.db.session import set_tenant_session_context
+    await set_tenant_session_context(db, user.organization_id)
+    
     return user

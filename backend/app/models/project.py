@@ -6,6 +6,7 @@ from app.db.base_class import Base, SoftDeleteMixin
 class Project(Base, SoftDeleteMixin):
     __tablename__ = "projects"
 
+    organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
     workspace_id = Column(UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
@@ -26,6 +27,7 @@ class Project(Base, SoftDeleteMixin):
 class ProjectTask(Base, SoftDeleteMixin):
     __tablename__ = "project_tasks"
 
+    organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
     project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
@@ -42,6 +44,7 @@ class ProjectTask(Base, SoftDeleteMixin):
 class Repository(Base):
     __tablename__ = "repositories"
 
+    organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
     project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     external_repo_id = Column(String(100), nullable=False)
     name = Column(String(255), nullable=False)
@@ -53,6 +56,7 @@ class Repository(Base):
 class Meeting(Base):
     __tablename__ = "meetings"
 
+    organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
     project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     external_event_id = Column(String(255), nullable=False)
     title = Column(String(255), nullable=False)

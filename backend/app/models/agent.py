@@ -46,6 +46,7 @@ class AgentExecution(Base):
 class ToolExecution(Base):
     __tablename__ = "tool_executions"
 
+    organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
     agent_execution_id = Column(UUID(as_uuid=True), ForeignKey("agent_executions.id", ondelete="CASCADE"), nullable=False)
     tool_name = Column(String(100), nullable=False)
     tool_parameters = Column(JSONB, nullable=False)

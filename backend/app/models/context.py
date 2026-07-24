@@ -23,6 +23,7 @@ class ContextChunk(Base):
 class ContextEmbedding(Base):
     __tablename__ = "context_embeddings"
 
+    organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
     chunk_id = Column(UUID(as_uuid=True), ForeignKey("context_chunks.id", ondelete="CASCADE"), nullable=False)
     model_name = Column(String(100), nullable=False, default="text-embedding-3-small")
     dimension = Column(Integer, nullable=False, default=1536)

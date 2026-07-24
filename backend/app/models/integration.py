@@ -17,6 +17,7 @@ class Integration(Base):
 class OAuthToken(Base):
     __tablename__ = "oauth_tokens"
 
+    organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
     integration_id = Column(UUID(as_uuid=True), ForeignKey("integrations.id", ondelete="CASCADE"), unique=True, nullable=False)
     encrypted_access_token = Column(Text, nullable=False)
     encrypted_refresh_token = Column(Text, nullable=True)

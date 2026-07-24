@@ -16,6 +16,7 @@ from tests.test_full_api_suite import test_full_api_suite_flow
 from tests.test_realtime_system import test_realtime_system_flow
 from tests.test_analytics_prediction import test_analytics_prediction_flow
 from tests.test_security_hardening import test_security_hardening_flow
+from tests.test_rls_isolation import test_rls_isolation_flow
 
 async def run_master_qa_suite():
     print("========================================================================")
@@ -24,7 +25,7 @@ async def run_master_qa_suite():
     
     start_time = time.time()
     passed_suites = 0
-    total_suites = 14
+    total_suites = 15
 
     test_suites = [
         ("Phase 1: Database Foundation", test_db_operations),
@@ -41,6 +42,7 @@ async def run_master_qa_suite():
         ("Phase 13: Real-Time WebSockets Engine", lambda: asyncio.to_thread(test_realtime_system_flow)),
         ("Phase 14: Predictive Analytics Engine", test_analytics_prediction_flow),
         ("Phase 15: Security Hardening & Rate Limits", test_security_hardening_flow),
+        ("Phase 15b: Row-Level Security (RLS) Tenant Isolation", test_rls_isolation_flow),
     ]
 
     for name, test_func in test_suites:

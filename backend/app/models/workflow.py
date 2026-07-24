@@ -21,6 +21,7 @@ class WorkflowDefinition(Base, SoftDeleteMixin):
 class WorkflowExecution(Base):
     __tablename__ = "workflow_executions"
 
+    organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
     workflow_id = Column(UUID(as_uuid=True), ForeignKey("workflows.id", ondelete="CASCADE"), nullable=True)
     workflow_definition_id = Column(UUID(as_uuid=True), ForeignKey("workflows.id", ondelete="CASCADE"), nullable=True)
     status = Column(String(50), nullable=False, default="running")

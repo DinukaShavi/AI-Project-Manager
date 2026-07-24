@@ -7,6 +7,7 @@ from app.db.base_class import Base
 class ContextSnapshot(Base):
     __tablename__ = "context_snapshots"
 
+    organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
     project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     snapshot_timestamp = Column(DateTime(timezone=True), nullable=False)
     state_payload = Column(JSONB, nullable=False)
@@ -18,6 +19,7 @@ class ContextSnapshot(Base):
 class KnowledgeGraphEdge(Base):
     __tablename__ = "knowledge_graph_edges"
 
+    organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
     project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     source_urn = Column(String(255), nullable=False)
     target_urn = Column(String(255), nullable=False)
