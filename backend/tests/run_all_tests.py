@@ -25,15 +25,16 @@ from tests.test_circuit_breaker import test_circuit_breaker_flow
 from tests.test_prompt_manager import test_prompt_manager_flow
 from tests.test_rbac_pdp import test_rbac_pdp_flow
 from tests.test_prompt_registry import test_prompt_registry_flow
+from tests.test_evaluation_engine import test_evaluation_engine_flow
 
 async def run_master_qa_suite():
     print("========================================================================")
-    print("        STARTING MASTER REGRESSION QA TEST SUITE (PHASES 1-23)          ")
+    print("        STARTING MASTER REGRESSION QA TEST SUITE (PHASES 1-24)          ")
     print("========================================================================")
     
     start_time = time.time()
     passed_suites = 0
-    total_suites = 23
+    total_suites = 24
 
     test_suites = [
         ("Phase 1: Database Foundation", test_db_operations),
@@ -59,7 +60,9 @@ async def run_master_qa_suite():
         ("Phase 15: Security Hardening & Rate Limits", test_security_hardening_flow),
         ("Phase 15b: Row-Level Security (RLS) Tenant Isolation", test_rls_isolation_flow),
         ("Phase 16: Project Intelligence Engine Core", test_project_intelligence_flow),
+        ("Phase 17: AI Evaluation & Benchmark Framework", test_evaluation_engine_flow),
     ]
+
 
 
 
