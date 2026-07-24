@@ -154,3 +154,77 @@ async def google_calendar_webhook(
         return {"status": "accepted", "event_id": str(event.id), "routing_key": event.routing_key}
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.get("/oauth/{provider}/authorize", status_code=status.HTTP_200_OK)
+async def oauth_authorize(
+    provider: str,
+    organization_id: Optional[UUID] = None,
+    redirect_uri: Optional[str] = "http://localhost:3000/oauth/callback",
+    db: AsyncSession = Depends(get_db)
+):
+    """Generate third-party OAuth provider authorization URL."""
+    service = IntegrationService(db)
+    org_id = organization_id or DEFAULT_ORG_ID
+    try:
+        url = await service.generate_oauth_authorize_url(
+            provider=provider,
+            organization_id=org_id,
+            redirect_uri=redirect_uri or "http://localhost:3000/oauth/callback"
+        )
+        return {"authorization_url": url, "provider": provider, "organization_id": str(org_id)}
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.get("/oauth/{provider}/callback", status_code=status.HTTP_200_OK)
+async def oauth_callback(
+    provider: str,
+    code: str,
+    organization_id: Optional[UUID] = None,
+    redirect_uri: Optional[str] = "http://localhost:3000/oauth/callback",
+    db: AsyncSession = Depends(get_db)
+):
+    """Exchange OAuth authorization code for encrypted tokens and persist in database."""
+    service = IntegrationService(db)
+    org_id = organization_id or DEFAULT_ORG_ID
+    try:
+        res = await service.exchange_code_for_token(
+            provider=provider,
+            code=code,
+            organization_id=org_id,
+            redirect_uri=redirect_uri or "http://localhost:3000/oauth/callback"
+        )
+        return res
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.get("/oauth/tokens/{organization_id}", status_code=status.HTTP_200_OK)
+async def get_tenant_oauth_token(
+    organization_id: UUID,
+    provider: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """Retrieve active decrypted tenant access token for tool invocation."""
+    service = IntegrationService(db)
+    token = await service.get_valid_oauth_token(organization_id=organization_id, provider=provider)
+    if not token:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No active OAuth token found for provider '{provider}'.")
+    return {"organization_id": str(organization_id), "provider": provider, "access_token": token}
+
+
+@router.delete("/oauth/{provider}", status_code=status.HTTP_200_OK)
+async def revoke_oauth_integration(
+    provider: str,
+    organization_id: Optional[UUID] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """Revoke and deactivate tenant OAuth provider integration."""
+    service = IntegrationService(db)
+    org_id = organization_id or DEFAULT_ORG_ID
+    success = await service.revoke_oauth_token(organization_id=org_id, provider=provider)
+    if not success:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Integration not found.")
+    return {"status": "revoked", "provider": provider, "organization_id": str(org_id)}
+

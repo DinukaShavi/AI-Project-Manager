@@ -42,10 +42,6 @@ class AgentService:
         """Run agent persona task and persist execution metrics in database."""
         agent = self.get_agent(agent_type)
         
-        start_time = time.time()
-        result_payload = await agent.execute(task_input, context)
-        duration_ms = int((time.time() - start_time) * 1000)
-
         # Ensure Organization and Project exist in DB to satisfy foreign key constraints
         org_res = await self.session.execute(select(Organization).where(Organization.id == organization_id))
         org = org_res.scalar_one_or_none()
@@ -69,22 +65,50 @@ class AgentService:
                 self.session.add(proj)
                 await self.session.flush()
 
-        # Log execution entry in PostgreSQL database
+        # Create AgentExecution record with CREATED state
         execution = AgentExecution(
             organization_id=organization_id,
             project_id=project_id,
             agent_name=agent.agent_name,
             agent_role=agent.role,
-            status="completed",
+            status="CREATED",
             input_payload={"task": task_input, "context": context or {}},
-            output_payload=result_payload,
-            execution_time_ms=duration_ms
+            output_payload={},
+            execution_time_ms=0
         )
         self.session.add(execution)
         await self.session.commit()
         await self.session.refresh(execution)
 
-        return execution
+        # Drive Execution Lifecycle through AgentStateMachine
+        from app.agents.state_machine import AgentStateMachine, AgentState
+        sm = AgentStateMachine(
+            execution_id=execution.id,
+            agent_name=agent.agent_name,
+            initial_status=AgentState.CREATED,
+            organization_id=organization_id,
+            db_session=self.session
+        )
+
+        # Transition: CREATED -> EXECUTING -> REFLECTION -> COMPLETED
+        await sm.transition_to(AgentState.EXECUTING, reason="Agent execution started")
+        
+        start_time = time.time()
+        result_payload = await agent.execute(task_input, context)
+        duration_ms = int((time.time() - start_time) * 1000)
+
+        await sm.transition_to(AgentState.REFLECTION, reason="Evaluating persona execution results")
+        await sm.transition_to(AgentState.COMPLETED, reason="Persona task completed successfully", metadata=result_payload)
+
+        # Final database refresh
+        res = await self.session.execute(select(AgentExecution).where(AgentExecution.id == execution.id))
+        updated_exec = res.scalar_one()
+        updated_exec.execution_time_ms = duration_ms
+        updated_exec.output_payload = result_payload
+        await self.session.commit()
+        await self.session.refresh(updated_exec)
+
+        return updated_exec
 
     async def get_execution(self, execution_id: UUID) -> Optional[AgentExecution]:
         """Fetch execution record by ID."""

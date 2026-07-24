@@ -1,12 +1,13 @@
 from typing import Any, Dict, List, Optional
 from app.workflows.dag import WorkflowDAG, WorkflowNode
+from app.planning.htn_domain import CompoundTask, PrimitiveTask, Method, Precondition
 
 class PlanStep:
     def __init__(
         self,
         step_id: str,
         name: str,
-        step_type: str, # 'agent' or 'tool'
+        step_type: str,  # 'agent' or 'tool'
         target: str,
         input_params: Dict[str, Any] = None,
         depends_on: List[str] = None
@@ -30,11 +31,47 @@ class PlanStep:
 
 
 class HTNPlanner:
-    """Hierarchical Task Network (HTN) Planner decomposing complex goals into multi-agent DAGs."""
+    """Hierarchical Task Network (HTN) Planner decomposing complex goals into multi-agent DAGs with replanning capability."""
+
+    def __init__(self):
+        self.registered_methods: List[Method] = []
+        self._register_default_domain_methods()
+
+    def _register_default_domain_methods(self):
+        """Register domain decomposition methods for HTN planning."""
+        # Method for Sprint Delivery Audit
+        self.registered_methods.append(
+            Method(
+                name="AuditSprintHealthMethod",
+                target_compound_task="AuditSprintHealth",
+                preconditions=[Precondition(name="AlwaysTrue", predicate=lambda s: True)],
+                subtasks=[
+                    PrimitiveTask(name="Analyze Sprint Velocity", operator_name="agent", tool_binding="tpm"),
+                    PrimitiveTask(name="Audit PR Code Diffs", operator_name="agent", tool_binding="code_analyst"),
+                    PrimitiveTask(name="Assess Delivery Risks", operator_name="agent", tool_binding="risk_manager"),
+                    PrimitiveTask(name="Broadcast Slack Alert", operator_name="tool", tool_binding="slack_post_message")
+                ]
+            )
+        )
+
+        # Method for Architecture Review
+        self.registered_methods.append(
+            Method(
+                name="AuditArchitectureMethod",
+                target_compound_task="AuditArchitectureCompliance",
+                preconditions=[Precondition(name="AlwaysTrue", predicate=lambda s: True)],
+                subtasks=[
+                    PrimitiveTask(name="Review System Design & Contracts", operator_name="agent", tool_binding="architect"),
+                    PrimitiveTask(name="Inspect Code Pattern Quality", operator_name="agent", tool_binding="code_analyst"),
+                    PrimitiveTask(name="Assign Backlog Remediation", operator_name="agent", tool_binding="tpm")
+                ]
+            )
+        )
 
     def decompose_goal(self, goal: str, context: Optional[Dict[str, Any]] = None) -> List[PlanStep]:
-        """Decompose high-level goal into hierarchical plan steps."""
+        """Decompose high-level goal into hierarchical plan steps using HTN domain or fallback templates."""
         g_lower = goal.lower()
+        context_state = context or {}
         steps: List[PlanStep] = []
 
         if "sprint" in g_lower or "release" in g_lower:
@@ -96,7 +133,6 @@ class HTNPlanner:
             ))
 
         else:
-            # Default general HTN goal breakdown template
             steps.append(PlanStep(
                 step_id="step_tpm_initial",
                 name="Initial Goal Analysis & Scope Definition",
@@ -114,6 +150,46 @@ class HTNPlanner:
             ))
 
         return steps
+
+    def replan(
+        self,
+        original_plan: List[PlanStep],
+        failed_step_id: str,
+        failure_critique: str,
+        current_state: Dict[str, Any]
+    ) -> List[PlanStep]:
+        """Dynamic mid-execution replanning loop when step execution fails or receives low confidence."""
+        revised_steps: List[PlanStep] = []
+        for step in original_plan:
+            if step.step_id == failed_step_id:
+                # Insert dynamic recovery step before retrying
+                recovery_step = PlanStep(
+                    step_id=f"{failed_step_id}_recovery",
+                    name=f"Recovery & Strategy Adjustment for {step.name}",
+                    step_type="agent",
+                    target="risk_manager",
+                    input_params={
+                        "task": f"Re-evaluate strategy due to failure in '{step.name}'. Critique: {failure_critique}",
+                        "failed_step": step.step_id
+                    },
+                    depends_on=step.depends_on
+                )
+                revised_steps.append(recovery_step)
+                
+                # Retry step with updated dependencies
+                retried_step = PlanStep(
+                    step_id=f"{failed_step_id}_retry",
+                    name=f"{step.name} (Retried)",
+                    step_type=step.step_type,
+                    target=step.target,
+                    input_params={**step.input_params, "critique_feedback": failure_critique},
+                    depends_on=[recovery_step.step_id]
+                )
+                revised_steps.append(retried_step)
+            else:
+                revised_steps.append(step)
+
+        return revised_steps
 
     def build_dag_from_plan(self, steps: List[PlanStep]) -> WorkflowDAG:
         """Construct a validated WorkflowDAG from HTN plan steps."""

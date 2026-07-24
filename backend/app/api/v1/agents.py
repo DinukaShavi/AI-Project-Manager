@@ -61,3 +61,46 @@ async def get_execution(
         "output": execution.output_payload,
         "created_at": execution.created_at
     }
+
+
+class StateTransitionRequest(BaseModel):
+    target_state: str = Field(..., description="Target State Machine Enum: CREATED, QUEUED, PLANNING, EXECUTING, WAITING_TOOL, WAITING_APPROVAL, REFLECTION, RETRYING, COMPLETED, CANCELLED, FAILED")
+    reason: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+@router.post("/executions/{execution_id}/transition", status_code=status.HTTP_200_OK)
+async def transition_agent_state(
+    execution_id: UUID,
+    payload: StateTransitionRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """Trigger valid State Machine transition for an active agent execution."""
+    service = AgentService(db)
+    execution = await service.get_execution(execution_id)
+    if not execution:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent execution not found.")
+
+    from app.agents.state_machine import AgentStateMachine, AgentState
+    try:
+        current_st = AgentState(execution.status.upper())
+    except Exception:
+        current_st = AgentState.CREATED
+
+    sm = AgentStateMachine(
+        execution_id=execution.id,
+        agent_name=execution.agent_name,
+        initial_status=current_st,
+        organization_id=execution.organization_id,
+        db_session=db
+    )
+
+    try:
+        record = await sm.transition_to(
+            target_state=AgentState(payload.target_state.upper()),
+            reason=payload.reason,
+            metadata=payload.metadata
+        )
+        return record
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+

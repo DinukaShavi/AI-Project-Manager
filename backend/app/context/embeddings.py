@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 import hashlib
 import math
-from typing import List, Optional
+from typing import List, Optional, Any
 import httpx
 from app.core.config import settings
 
@@ -84,3 +84,40 @@ def get_embedding_generator() -> EmbeddingGenerator:
         else:
             _embedding_generator_instance = LocalMockEmbeddingGenerator()
     return _embedding_generator_instance
+
+
+class HybridContextRetriever:
+    """Hybrid Context Retriever combining vector similarity search with Knowledge Graph neighbor traversal."""
+
+    def __init__(self, embedding_generator: Optional[EmbeddingGenerator] = None):
+        self.embedding_generator = embedding_generator or get_embedding_generator()
+
+    async def retrieve_hybrid_context(
+        self,
+        query: str,
+        graph: Any,
+        vector_results: List[dict],
+        max_graph_depth: int = 2
+    ) -> dict:
+        """Fuse vector similarity matches with Knowledge Graph neighbors for context synthesis."""
+        query_vector = await self.embedding_generator.generate_embedding(query)
+        
+        # Extract graph URNs linked to vector matches
+        graph_contexts = []
+        for match in vector_results:
+            urn = match.get("urn") or match.get("document_id")
+            if urn and hasattr(graph, "get_subgraph_context"):
+                subgraph = graph.get_subgraph_context(urn, max_depth=max_graph_depth)
+                graph_contexts.append({
+                    "seed_urn": urn,
+                    "vector_score": match.get("score", 0.0),
+                    "subgraph": subgraph
+                })
+
+        return {
+            "query": query,
+            "query_vector_dim": len(query_vector),
+            "vector_matches": vector_results,
+            "hybrid_graph_contexts": graph_contexts
+        }
+

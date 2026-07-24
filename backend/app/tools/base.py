@@ -16,6 +16,15 @@ class BaseTool(ABC):
                 raise ValueError(f"Missing required parameter '{req_field}' for tool '{self.name}'.")
         return True
 
+    def validate_args(self, params: Dict[str, Any]) -> tuple[bool, Optional[str]]:
+        """Adapter helper validating parameters and returning (is_valid, error_message)."""
+        try:
+            self.validate_parameters(params)
+            return True, None
+        except ValueError as ve:
+            return False, str(ve)
+
+
     @abstractmethod
     async def execute(
         self,

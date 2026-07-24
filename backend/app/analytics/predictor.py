@@ -115,3 +115,66 @@ class PredictiveAnalyticsEngine:
             "risk_level": risk_level,
             "risk_factors": risk_factors
         }
+
+
+import random
+
+class MonteCarloPredictor:
+    """Monte Carlo Probabilistic Simulation Engine sampling 1,000 sprint velocity trajectories."""
+
+    @staticmethod
+    def run_simulation(
+        historical_velocities: List[float],
+        remaining_points: float,
+        num_simulations: int = 1000,
+        sprint_days_left: int = 7
+    ) -> Dict[str, Any]:
+        """Run 1,000-run Monte Carlo simulation to compute P50, P80, P95 completion forecasts."""
+        if not historical_velocities:
+            historical_velocities = [5.0, 8.0, 6.0, 7.0, 4.0]
+
+        if remaining_points <= 0:
+            return {
+                "num_simulations": num_simulations,
+                "p50_days": 0.0,
+                "p80_days": 0.0,
+                "p95_days": 0.0,
+                "completion_prob_on_time": 1.0,
+                "predicted_p50_date": datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            }
+
+        simulated_days_needed: List[float] = []
+
+        for _ in range(num_simulations):
+            pts = remaining_points
+            days = 0
+            while pts > 0 and days < 100:
+                daily_vel = random.choice(historical_velocities) / 14.0 # Daily velocity
+                daily_vel = max(0.1, daily_vel + random.gauss(0, 0.2))
+                pts -= daily_vel
+                days += 1
+            simulated_days_needed.append(days)
+
+        simulated_days_needed.sort()
+        p50_idx = int(num_simulations * 0.50)
+        p80_idx = int(num_simulations * 0.80)
+        p95_idx = int(num_simulations * 0.95)
+
+        p50_days = simulated_days_needed[p50_idx]
+        p80_days = simulated_days_needed[p80_idx]
+        p95_days = simulated_days_needed[p95_idx]
+
+        on_time_count = sum(1 for d in simulated_days_needed if d <= sprint_days_left)
+        prob_on_time = round(on_time_count / num_simulations, 2)
+
+        p50_date = datetime.now(timezone.utc) + timedelta(days=p50_days)
+
+        return {
+            "num_simulations": num_simulations,
+            "p50_days": p50_days,
+            "p80_days": p80_days,
+            "p95_days": p95_days,
+            "completion_prob_on_time": prob_on_time,
+            "predicted_p50_date": p50_date.strftime("%Y-%m-%d")
+        }
+

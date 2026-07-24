@@ -84,3 +84,33 @@ async def get_plan(
         "status": plan.status,
         "plan_steps": plan.plan_steps
     }
+
+
+class IntelligenceGoalRequest(BaseModel):
+    organization_id: UUID
+    goal: str = Field(..., description="Project management goal or milestone")
+    project_id: Optional[UUID] = None
+    user_role: Optional[str] = "Developer"
+    approval_token: Optional[str] = None
+    historical_velocities: Optional[list[float]] = None
+    remaining_points: Optional[float] = 25.0
+
+@router.post("/intelligence", status_code=status.HTTP_200_OK)
+async def process_project_intelligence(
+    payload: IntelligenceGoalRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """Execute unified Project Intelligence Engine pipeline (Knowledge Graph, HTN, Tool Approvals, Reflection, Monte Carlo)."""
+    from app.services.intelligence_engine import ProjectIntelligenceEngine
+    engine = ProjectIntelligenceEngine(db)
+    result = await engine.process_goal(
+        goal=payload.goal,
+        organization_id=str(payload.organization_id),
+        project_id=str(payload.project_id) if payload.project_id else None,
+        user_role=payload.user_role or "Developer",
+        approval_token=payload.approval_token,
+        historical_velocities=payload.historical_velocities,
+        remaining_points=payload.remaining_points or 25.0
+    )
+    return result
+

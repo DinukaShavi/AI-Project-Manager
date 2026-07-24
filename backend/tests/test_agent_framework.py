@@ -75,7 +75,7 @@ async def test_agent_framework_flow():
                     context={"team_size": 5}
                 )
                 created_execution_ids.append(execution.id)
-                assert execution.status == "completed"
+                assert execution.status.lower() == "completed"
                 assert execution.agent_name == "TechnicalPMAgent"
                 assert execution.execution_time_ms >= 0
                 print(f"SUCCESS: Agent execution logged in DB. Execution ID: {execution.id}")
@@ -93,7 +93,7 @@ async def test_agent_framework_flow():
             )
             assert res.status_code == 200, f"Endpoint failed: {res.text}"
             res_json = res.json()
-            assert res_json["status"] == "completed"
+            assert res_json["status"].lower() == "completed"
             assert res_json["agent_name"] == "ArchitectureReviewerAgent"
             exec_id = uuid.UUID(res_json["execution_id"])
             created_execution_ids.append(exec_id)

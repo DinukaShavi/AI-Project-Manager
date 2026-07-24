@@ -34,18 +34,22 @@ class ToolService:
             error_msg = str(e)
             result = {"status": "error", "message": error_msg}
 
-        # Log tool execution in database if linked to an agent execution
+        # Log tool execution in database if linked to a valid agent execution
         if agent_execution_id:
-            tool_exec = ToolExecution(
-                agent_execution_id=agent_execution_id,
-                tool_name=tool_name,
-                tool_parameters=parameters,
-                tool_output=result,
-                status=status_flag,
-                error_message=error_msg
-            )
-            self.session.add(tool_exec)
-            await self.session.commit()
+            from sqlalchemy import select
+            from app.models.agent import AgentExecution
+            res = await self.session.execute(select(AgentExecution).where(AgentExecution.id == agent_execution_id))
+            if res.scalar_one_or_none():
+                tool_exec = ToolExecution(
+                    agent_execution_id=agent_execution_id,
+                    tool_name=tool_name,
+                    tool_parameters=parameters,
+                    tool_output=result,
+                    status=status_flag,
+                    error_message=error_msg
+                )
+                self.session.add(tool_exec)
+                await self.session.commit()
 
         if status_flag == "failure":
             raise ValueError(f"Tool '{tool_name}' execution failed: {error_msg}")

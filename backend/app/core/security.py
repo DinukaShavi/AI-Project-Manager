@@ -65,3 +65,31 @@ def decode_token(token: str) -> Optional[dict]:
         return payload
     except JWTError:
         return None
+
+
+import base64
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes
+
+def _get_fernet_cipher() -> Fernet:
+    """Derive a URL-safe 32-byte Fernet key from settings.SECRET_KEY."""
+    digest = hashlib.sha256(settings.SECRET_KEY.encode('utf-8')).digest()
+    key_b64 = base64.urlsafe_b64encode(digest)
+    return Fernet(key_b64)
+
+import hashlib
+
+def encrypt_token(plain_token: str) -> str:
+    """Encrypt OAuth access or refresh token before database storage using AES-256 Fernet."""
+    if not plain_token:
+        return ""
+    cipher = _get_fernet_cipher()
+    return cipher.encrypt(plain_token.encode('utf-8')).decode('utf-8')
+
+def decrypt_token(encrypted_token: str) -> str:
+    """Decrypt stored OAuth access or refresh token at runtime for outbound requests."""
+    if not encrypted_token:
+        return ""
+    cipher = _get_fernet_cipher()
+    return cipher.decrypt(encrypted_token.encode('utf-8')).decode('utf-8')
+
