@@ -125,3 +125,62 @@ export async function searchLongTermMemory(query: string, orgId: string) {
     }),
   });
 }
+
+// Observability & Tracing
+export async function getObservabilityTraces() {
+  return apiRequest<{ total_traces: number; spans: any[] }>("/observability/traces");
+}
+
+export async function getObservabilityMetrics() {
+  return apiRequest<{ total_spans_recorded: number; telemetry_metrics: Record<string, any> }>("/observability/metrics");
+}
+
+// Security & Prompt Guard
+export async function scanPromptInjection(text: string) {
+  return apiRequest<{ is_injection: boolean; risk_score: number; matched_patterns: string[]; action: string }>("/security/scan-prompt", {
+    method: "POST",
+    body: JSON.stringify({ input_text: text }),
+  });
+}
+
+export async function sanitizeSecurityInput(text: string) {
+  return apiRequest<{ status: string; reason?: string; risk_score: number; sanitized_text: string; pii_masked_counts: Record<string, number> }>("/security/sanitize", {
+    method: "POST",
+    body: JSON.stringify({ input_text: text }),
+  });
+}
+
+// Rate Limiter
+export async function checkRateLimit(dimension: string, identifier: string, tokensNeeded: number = 1.0) {
+  return apiRequest<{ allowed: boolean; remaining: number; limit: number; retry_after_sec: number }>("/rate-limit/check", {
+    method: "POST",
+    body: JSON.stringify({ dimension, identifier, tokens_needed: tokensNeeded }),
+  });
+}
+
+// Model Router
+export async function getModelMatrix() {
+  return apiRequest<{ default_tier: string; total_categories: number; routing_matrix: Record<string, any> }>("/models/matrix");
+}
+
+export async function routeModelTask(taskCategory: string, budgetTier: string = "standard", payloadLength: number = 500) {
+  return apiRequest<{ task_category: string; budget_tier: string; selected_model: string; secondary_fallback_model: string; estimated_latency_ms: number }>("/models/route", {
+    method: "POST",
+    body: JSON.stringify({ task_category: taskCategory, budget_tier: budgetTier, payload_token_length: payloadLength }),
+  });
+}
+
+// AI Cost Monitoring
+export async function getCostSummary(orgId: string) {
+  return apiRequest<{ organization_id: string; total_cost_usd: number; total_prompt_tokens: number; total_completion_tokens: number; total_cache_hits: number }>(`/costs/summary/${orgId}`);
+}
+
+export async function getCostAlerts(orgId: string) {
+  return apiRequest<{ organization_id: string; alert_status: string; utilization_percentage: number; current_spend_usd: number; budget_limit_usd: number }>(`/costs/alerts/${orgId}`);
+}
+
+// Graph Evolution
+export async function traverseKnowledgeGraph(startNodeId: string, minWeight: number = 0.10) {
+  return apiRequest<{ start_node_id: string; active_outbound_edges: any[]; total_active_edges: number }>(`/graph-evolution/traverse/${startNodeId}?min_weight=${minWeight}`);
+}
+

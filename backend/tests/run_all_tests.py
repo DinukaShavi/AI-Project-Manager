@@ -34,15 +34,16 @@ from tests.test_rate_limiter import test_rate_limiter_flow
 from tests.test_security_guard import test_security_guard_flow
 from tests.test_graph_evolution import test_graph_evolution_flow
 from tests.test_tenant_isolation import test_tenant_isolation_flow
+from tests.test_frontend_api_contract import test_frontend_api_contract_flow
 
 async def run_master_qa_suite():
     print("========================================================================")
-    print("        STARTING MASTER REGRESSION QA TEST SUITE (PHASES 1-32)          ")
+    print("        STARTING MASTER REGRESSION QA TEST SUITE (PHASES 1-33)          ")
     print("========================================================================")
     
     start_time = time.time()
     passed_suites = 0
-    total_suites = 32
+    total_suites = 33
 
     test_suites = [
         ("Phase 1: Database Foundation", test_db_operations),
@@ -77,7 +78,9 @@ async def run_master_qa_suite():
         ("Phase 16b: Knowledge Graph Weight Decay & Event Inference Pipeline", test_graph_evolution_flow),
         ("Phase 17: AI Evaluation & Benchmark Framework", test_evaluation_engine_flow),
         ("Phase 18: OpenTelemetry Distributed Tracing & Telemetry Exporter", test_observability_flow),
+        ("Phase 19: Frontend-to-Backend API Contract Integration", test_frontend_api_contract_flow),
     ]
+
 
 
 
