@@ -29,15 +29,16 @@ from tests.test_evaluation_engine import test_evaluation_engine_flow
 from tests.test_model_router import test_model_router_flow
 from tests.test_cost_monitoring import test_cost_monitoring_flow
 from tests.test_memory_lifecycle import test_memory_lifecycle_flow
+from tests.test_observability import test_observability_flow
 
 async def run_master_qa_suite():
     print("========================================================================")
-    print("        STARTING MASTER REGRESSION QA TEST SUITE (PHASES 1-27)          ")
+    print("        STARTING MASTER REGRESSION QA TEST SUITE (PHASES 1-28)          ")
     print("========================================================================")
     
     start_time = time.time()
     passed_suites = 0
-    total_suites = 27
+    total_suites = 28
 
     test_suites = [
         ("Phase 1: Database Foundation", test_db_operations),
@@ -67,7 +68,9 @@ async def run_master_qa_suite():
         ("Phase 15b: Row-Level Security (RLS) Tenant Isolation", test_rls_isolation_flow),
         ("Phase 16: Project Intelligence Engine Core", test_project_intelligence_flow),
         ("Phase 17: AI Evaluation & Benchmark Framework", test_evaluation_engine_flow),
+        ("Phase 18: OpenTelemetry Distributed Tracing & Telemetry Exporter", test_observability_flow),
     ]
+
 
 
 
