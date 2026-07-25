@@ -3,12 +3,12 @@
 import React from "react";
 
 interface NavbarProps {
-  activeTab: string;
-  setActiveTab: (tab: string) => void;
-  onOpenAgentModal: () => void;
+  activeTab?: string;
+  setActiveTab?: (tab: string) => void;
+  onOpenAgentModal?: () => void;
 }
 
-export default function Navbar({ activeTab, setActiveTab, onOpenAgentModal }: NavbarProps) {
+export default function Navbar({ activeTab = "overview", setActiveTab, onOpenAgentModal }: NavbarProps) {
   return (
     <header className="sticky top-0 z-40 w-full glass-panel border-b border-slate-800/80 px-6 py-3.5 flex items-center justify-between">
       {/* Brand Identity */}

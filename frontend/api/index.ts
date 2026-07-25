@@ -16,3 +16,5 @@ export { rateLimiterApi } from "./rateLimiter.api";
 export { modelRouterApi } from "./modelRouter.api";
 export { costsApi } from "./costs.api";
 export { graphApi } from "./graph.api";
+export { githubApi } from "./github.api";
+

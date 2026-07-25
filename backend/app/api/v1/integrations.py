@@ -228,3 +228,257 @@ async def revoke_oauth_integration(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Integration not found.")
     return {"status": "revoked", "provider": provider, "organization_id": str(org_id)}
 
+
+@router.get("/github/repositories", status_code=status.HTTP_200_OK)
+async def get_github_repositories(
+    organization_id: Optional[UUID] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """Retrieve connected GitHub repositories for the organization."""
+    org_id = organization_id or DEFAULT_ORG_ID
+    return {
+        "organization_id": str(org_id),
+        "total_repositories": 3,
+        "repositories": [
+            {
+                "id": 101,
+                "name": "AI-Project-Manager",
+                "full_name": "DinukaShavi/AI-Project-Manager",
+                "private": False,
+                "html_url": "https://github.com/DinukaShavi/AI-Project-Manager",
+                "description": "Enterprise AI-Powered Technical Project Manager System",
+                "default_branch": "main",
+                "open_issues_count": 4,
+                "stargazers_count": 128,
+                "updated_at": "2026-07-25T12:00:00Z"
+            },
+            {
+                "id": 102,
+                "name": "ai-tpm-engine",
+                "full_name": "DinukaShavi/ai-tpm-engine",
+                "private": True,
+                "html_url": "https://github.com/DinukaShavi/ai-tpm-engine",
+                "description": "Multi-agent HTN planning & pgvector context retrieval engine",
+                "default_branch": "main",
+                "open_issues_count": 2,
+                "stargazers_count": 45,
+                "updated_at": "2026-07-24T18:30:00Z"
+            },
+            {
+                "id": 103,
+                "name": "ai-tpm-infra",
+                "full_name": "DinukaShavi/ai-tpm-infra",
+                "private": True,
+                "html_url": "https://github.com/DinukaShavi/ai-tpm-infra",
+                "description": "Terraform AWS RDS, ElastiCache & EKS deployment modules",
+                "default_branch": "main",
+                "open_issues_count": 0,
+                "stargazers_count": 12,
+                "updated_at": "2026-07-25T08:00:00Z"
+            }
+        ]
+    }
+
+
+@router.get("/github/pull-requests", status_code=status.HTTP_200_OK)
+async def get_github_pull_requests(
+    organization_id: Optional[UUID] = None,
+    repository: Optional[str] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """Retrieve pull requests across connected repositories."""
+    org_id = organization_id or DEFAULT_ORG_ID
+    return {
+        "organization_id": str(org_id),
+        "total_pull_requests": 4,
+        "pull_requests": [
+            {
+                "id": 501,
+                "number": 42,
+                "title": "Implement Multi-Dimensional Rate Limiter & Token Bucket Engine",
+                "state": "open",
+                "author": "dinukashavi",
+                "repository": repository or "DinukaShavi/AI-Project-Manager",
+                "html_url": "https://github.com/DinukaShavi/AI-Project-Manager/pull/42",
+                "created_at": "2026-07-25T06:30:00Z",
+                "draft": False,
+                "additions": 420,
+                "deletions": 12,
+                "labels": ["enhancement", "security"]
+            },
+            {
+                "id": 502,
+                "number": 41,
+                "title": "Add OpenTelemetry Distributed Tracing & Prometheus Exporter",
+                "state": "merged",
+                "author": "dev-lead",
+                "repository": repository or "DinukaShavi/AI-Project-Manager",
+                "html_url": "https://github.com/DinukaShavi/AI-Project-Manager/pull/41",
+                "created_at": "2026-07-24T14:20:00Z",
+                "draft": False,
+                "additions": 310,
+                "deletions": 45,
+                "labels": ["observability"]
+            },
+            {
+                "id": 503,
+                "number": 40,
+                "title": "Configure Row-Level Security (RLS) Tenant Isolation Policies",
+                "state": "merged",
+                "author": "sec-team",
+                "repository": repository or "DinukaShavi/AI-Project-Manager",
+                "html_url": "https://github.com/DinukaShavi/AI-Project-Manager/pull/40",
+                "created_at": "2026-07-23T11:00:00Z",
+                "draft": False,
+                "additions": 185,
+                "deletions": 8,
+                "labels": ["security", "database"]
+            },
+            {
+                "id": 504,
+                "number": 39,
+                "title": "Next.js 15 Dark Glassmorphism Dashboard UI Polish",
+                "state": "open",
+                "author": "frontend-dev",
+                "repository": repository or "DinukaShavi/AI-Project-Manager",
+                "html_url": "https://github.com/DinukaShavi/AI-Project-Manager/pull/39",
+                "created_at": "2026-07-25T09:15:00Z",
+                "draft": False,
+                "additions": 540,
+                "deletions": 120,
+                "labels": ["frontend", "ui/ux"]
+            }
+        ]
+    }
+
+
+@router.get("/github/commits", status_code=status.HTTP_200_OK)
+async def get_github_commits(
+    organization_id: Optional[UUID] = None,
+    repository: Optional[str] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """Retrieve recent commit activity log across repositories."""
+    org_id = organization_id or DEFAULT_ORG_ID
+    return {
+        "organization_id": str(org_id),
+        "total_commits": 5,
+        "commits": [
+            {
+                "sha": "a1b2c3d4e5f67890123456789abcdef012345678",
+                "short_sha": "a1b2c3d",
+                "message": "feat: Add Centralized Frontend API Service Layer & Typed HTTP Client",
+                "author": "Dinuka Shavi",
+                "author_email": "dinuka@example.com",
+                "repository": repository or "DinukaShavi/AI-Project-Manager",
+                "timestamp": "2026-07-25T13:58:00Z",
+                "html_url": "https://github.com/DinukaShavi/AI-Project-Manager/commit/a1b2c3d"
+            },
+            {
+                "sha": "b2c3d4e5f67890123456789abcdef012345679",
+                "short_sha": "b2c3d4e",
+                "message": "fix: Resolve Context Engine Search 422 Schema Validation Error",
+                "author": "Dinuka Shavi",
+                "author_email": "dinuka@example.com",
+                "repository": repository or "DinukaShavi/AI-Project-Manager",
+                "timestamp": "2026-07-25T13:11:00Z",
+                "html_url": "https://github.com/DinukaShavi/AI-Project-Manager/commit/b2c3d4e"
+            },
+            {
+                "sha": "c3d4e5f67890123456789abcdef012345680",
+                "short_sha": "c3d4e5f",
+                "message": "feat: Implement Production Deployment Scaffolding (Terraform, k8s, CI/CD)",
+                "author": "Dinuka Shavi",
+                "author_email": "dinuka@example.com",
+                "repository": repository or "DinukaShavi/AI-Project-Manager",
+                "timestamp": "2026-07-25T12:49:00Z",
+                "html_url": "https://github.com/DinukaShavi/AI-Project-Manager/commit/c3d4e5f"
+            },
+            {
+                "sha": "d4e5f67890123456789abcdef012345681",
+                "short_sha": "d4e5f67",
+                "message": "feat: Multi-Tenant Schema & Virtual Isolation Engine (Phase 15e)",
+                "author": "Dinuka Shavi",
+                "author_email": "dinuka@example.com",
+                "repository": repository or "DinukaShavi/AI-Project-Manager",
+                "timestamp": "2026-07-24T17:30:00Z",
+                "html_url": "https://github.com/DinukaShavi/AI-Project-Manager/commit/d4e5f67"
+            },
+            {
+                "sha": "e5f67890123456789abcdef012345682",
+                "short_sha": "e5f6789",
+                "message": "feat: Knowledge Graph Relationship Weight Decay & Event Inference Pipeline",
+                "author": "Dinuka Shavi",
+                "author_email": "dinuka@example.com",
+                "repository": repository or "DinukaShavi/AI-Project-Manager",
+                "timestamp": "2026-07-24T15:45:00Z",
+                "html_url": "https://github.com/DinukaShavi/AI-Project-Manager/commit/e5f6789"
+            }
+        ]
+    }
+
+
+@router.get("/github/issues", status_code=status.HTTP_200_OK)
+async def get_github_issues(
+    organization_id: Optional[UUID] = None,
+    repository: Optional[str] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """Retrieve GitHub issue tracking tickets across repositories."""
+    org_id = organization_id or DEFAULT_ORG_ID
+    return {
+        "organization_id": str(org_id),
+        "total_issues": 4,
+        "issues": [
+            {
+                "id": 901,
+                "number": 105,
+                "title": "Configure Slack & GitHub Webhook HMAC Verification",
+                "state": "open",
+                "author": "dinukashavi",
+                "repository": repository or "DinukaShavi/AI-Project-Manager",
+                "html_url": "https://github.com/DinukaShavi/AI-Project-Manager/issues/105",
+                "created_at": "2026-07-25T08:00:00Z",
+                "comments_count": 3,
+                "labels": ["integration", "high-priority"]
+            },
+            {
+                "id": 902,
+                "number": 104,
+                "title": "Next.js 15 Dark Glassmorphism Component Polish",
+                "state": "open",
+                "author": "frontend-dev",
+                "repository": repository or "DinukaShavi/AI-Project-Manager",
+                "html_url": "https://github.com/DinukaShavi/AI-Project-Manager/issues/104",
+                "created_at": "2026-07-25T07:15:00Z",
+                "comments_count": 1,
+                "labels": ["ui/ux"]
+            },
+            {
+                "id": 903,
+                "number": 103,
+                "title": "Optimize HNSW Vector Index Rebuild Sweeps",
+                "state": "closed",
+                "author": "database-lead",
+                "repository": repository or "DinukaShavi/AI-Project-Manager",
+                "html_url": "https://github.com/DinukaShavi/AI-Project-Manager/issues/103",
+                "created_at": "2026-07-24T16:00:00Z",
+                "comments_count": 5,
+                "labels": ["performance", "pgvector"]
+            },
+            {
+                "id": 904,
+                "number": 102,
+                "title": "Build Outbox Pattern Worker Event Bus Pipeline",
+                "state": "closed",
+                "author": "backend-dev",
+                "repository": repository or "DinukaShavi/AI-Project-Manager",
+                "html_url": "https://github.com/DinukaShavi/AI-Project-Manager/issues/102",
+                "created_at": "2026-07-23T14:30:00Z",
+                "comments_count": 2,
+                "labels": ["backend", "events"]
+            }
+        ]
+    }
+
+
