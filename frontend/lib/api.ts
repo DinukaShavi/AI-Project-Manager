@@ -12,8 +12,14 @@ import {
   modelRouterApi,
   costsApi,
   graphApi,
+  githubApi,
+  jiraApi,
+  slackApi,
+  calendarApi,
   httpClient,
 } from "../api";
+
+export { githubApi, jiraApi, slackApi, calendarApi };
 
 export const apiRequest = httpClient;
 
