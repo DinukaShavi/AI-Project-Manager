@@ -109,6 +109,7 @@ export async function searchContextEngine(query: string, orgId: string) {
     method: "POST",
     body: JSON.stringify({
       organization_id: orgId,
+      query: query,
       query_text: query,
       top_k: 5,
     }),

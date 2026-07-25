@@ -18,9 +18,13 @@ class IndexRequest(BaseModel):
 
 class SearchRequest(BaseModel):
     organization_id: UUID
-    query: str = Field(..., description="Semantic search query")
+    query: Optional[str] = Field(None, description="Semantic search query")
+    query_text: Optional[str] = Field(None, description="Semantic search query alias")
     project_id: Optional[UUID] = None
     top_k: int = Field(5, ge=1, le=50)
+
+    def get_query(self) -> str:
+        return self.query or self.query_text or ""
 
 @router.post("/index", status_code=status.HTTP_201_CREATED)
 async def index_document(
@@ -50,14 +54,15 @@ async def search_context(
 ):
     """Execute vector semantic search across indexed technical context."""
     service = ContextEngineService(db)
+    search_q = payload.get_query()
     results = await service.search_context(
         organization_id=payload.organization_id,
-        query_text=payload.query,
+        query_text=search_q,
         project_id=payload.project_id,
         top_k=payload.top_k
     )
     return {
-        "query": payload.query,
+        "query": search_q,
         "results_count": len(results),
         "results": results
     }
