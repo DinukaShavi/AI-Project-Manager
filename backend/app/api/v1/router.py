@@ -2,7 +2,7 @@ from fastapi import APIRouter
 from app.api.v1 import (
     auth, users, integrations, context, agents,
     tools, workflows, memory, planning, projects,
-    tasks, analytics, workspaces, websockets, prompts, evaluations, model_router, costs, memory_lifecycle, observability, rate_limiter
+    tasks, analytics, workspaces, websockets, prompts, evaluations, model_router, costs, memory_lifecycle, observability, rate_limiter, security_guard
 )
 
 api_router = APIRouter()
@@ -26,4 +26,5 @@ api_router.include_router(costs.router, tags=["costs"])
 api_router.include_router(memory_lifecycle.router, tags=["memory-lifecycle"])
 api_router.include_router(observability.router, tags=["observability"])
 api_router.include_router(rate_limiter.router, tags=["rate-limit"])
+api_router.include_router(security_guard.router, tags=["security-guard"])
 api_router.include_router(websockets.router, tags=["realtime"])
