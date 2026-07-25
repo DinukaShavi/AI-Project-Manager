@@ -28,15 +28,16 @@ from tests.test_prompt_registry import test_prompt_registry_flow
 from tests.test_evaluation_engine import test_evaluation_engine_flow
 from tests.test_model_router import test_model_router_flow
 from tests.test_cost_monitoring import test_cost_monitoring_flow
+from tests.test_memory_lifecycle import test_memory_lifecycle_flow
 
 async def run_master_qa_suite():
     print("========================================================================")
-    print("        STARTING MASTER REGRESSION QA TEST SUITE (PHASES 1-26)          ")
+    print("        STARTING MASTER REGRESSION QA TEST SUITE (PHASES 1-27)          ")
     print("========================================================================")
     
     start_time = time.time()
     passed_suites = 0
-    total_suites = 26
+    total_suites = 27
 
     test_suites = [
         ("Phase 1: Database Foundation", test_db_operations),
@@ -57,6 +58,7 @@ async def run_master_qa_suite():
         ("Phase 8b: Dynamic Model Router & Fallback Engine", test_model_router_flow),
         ("Phase 9: Memory System Vector Recall", test_memory_system_flow),
         ("Phase 9b: AI Cost Monitoring, Accounting & Budget Alert Engine", test_cost_monitoring_flow),
+        ("Phase 9c: Memory Lifecycle, Summarization & Automated Vector GC", test_memory_lifecycle_flow),
         ("Phase 10: AI HTN Planning System", test_planning_system_flow),
         ("Phase 11: Full Domain REST APIs", test_full_api_suite_flow),
         ("Phase 13: Real-Time WebSockets Engine", lambda: asyncio.to_thread(test_realtime_system_flow)),
@@ -66,6 +68,7 @@ async def run_master_qa_suite():
         ("Phase 16: Project Intelligence Engine Core", test_project_intelligence_flow),
         ("Phase 17: AI Evaluation & Benchmark Framework", test_evaluation_engine_flow),
     ]
+
 
 
 

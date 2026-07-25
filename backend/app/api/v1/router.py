@@ -2,7 +2,7 @@ from fastapi import APIRouter
 from app.api.v1 import (
     auth, users, integrations, context, agents,
     tools, workflows, memory, planning, projects,
-    tasks, analytics, workspaces, websockets, prompts, evaluations, model_router, costs
+    tasks, analytics, workspaces, websockets, prompts, evaluations, model_router, costs, memory_lifecycle
 )
 
 api_router = APIRouter()
@@ -23,4 +23,5 @@ api_router.include_router(prompts.router, tags=["prompts"])
 api_router.include_router(evaluations.router, tags=["evaluations"])
 api_router.include_router(model_router.router, tags=["models"])
 api_router.include_router(costs.router, tags=["costs"])
+api_router.include_router(memory_lifecycle.router, tags=["memory-lifecycle"])
 api_router.include_router(websockets.router, tags=["realtime"])
