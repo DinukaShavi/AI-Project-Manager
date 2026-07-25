@@ -482,3 +482,239 @@ async def get_github_issues(
     }
 
 
+# ============================================================================
+# JIRA PLATFORM INTEGRATION MODULE ENDPOINTS
+# ============================================================================
+
+@router.get("/jira/projects", status_code=status.HTTP_200_OK)
+async def get_jira_projects(
+    organization_id: Optional[UUID] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """Retrieve connected Jira software projects."""
+    org_id = organization_id or DEFAULT_ORG_ID
+    return {
+        "organization_id": str(org_id),
+        "total_projects": 2,
+        "projects": [
+            {"id": "10001", "key": "TPM", "name": "Technical Project Manager", "project_type": "software", "lead": "Dinuka Shavi", "total_issues": 18},
+            {"id": "10002", "key": "INFRA", "name": "Cloud Infrastructure", "project_type": "business", "lead": "DevOps Lead", "total_issues": 10}
+        ]
+    }
+
+
+@router.get("/jira/issues", status_code=status.HTTP_200_OK)
+async def get_jira_issues(
+    organization_id: Optional[UUID] = None,
+    project_key: Optional[str] = "TPM",
+    db: AsyncSession = Depends(get_db)
+):
+    """Retrieve Jira issue backlog and sprint tickets."""
+    org_id = organization_id or DEFAULT_ORG_ID
+    return {
+        "organization_id": str(org_id),
+        "total_issues": 4,
+        "issues": [
+            {"id": "20001", "key": "TPM-101", "summary": "Implement pgvector SQLAlchemy Fallback", "status": "In Progress", "priority": "High", "assignee": "Dinuka Shavi", "story_points": 5},
+            {"id": "20002", "key": "TPM-102", "summary": "Build Outbox Pattern Worker Event Bus", "status": "Done", "priority": "Highest", "assignee": "Dev Lead", "story_points": 8},
+            {"id": "20003", "key": "TPM-103", "summary": "Create Multi-Agent DAG Workflow Engine", "status": "Done", "priority": "High", "assignee": "AI Architect", "story_points": 8},
+            {"id": "20004", "key": "TPM-104", "summary": "Next.js 15 Dark Glassmorphism Integration", "status": "In Progress", "priority": "Medium", "assignee": "Frontend Lead", "story_points": 5}
+        ]
+    }
+
+
+@router.get("/jira/sprints", status_code=status.HTTP_200_OK)
+async def get_jira_sprints(
+    organization_id: Optional[UUID] = None,
+    project_key: Optional[str] = "TPM",
+    db: AsyncSession = Depends(get_db)
+):
+    """Retrieve active and upcoming Jira sprints."""
+    org_id = organization_id or DEFAULT_ORG_ID
+    return {
+        "organization_id": str(org_id),
+        "total_sprints": 2,
+        "sprints": [
+            {"id": 301, "name": "Sprint 14 - Production Launch", "state": "active", "start_date": "2026-07-20T00:00:00Z", "end_date": "2026-08-03T00:00:00Z", "completed_story_points": 21, "total_story_points": 34},
+            {"id": 302, "name": "Sprint 15 - Performance & Scaling", "state": "future", "start_date": "2026-08-04T00:00:00Z", "end_date": "2026-08-18T00:00:00Z", "completed_story_points": 0, "total_story_points": 40}
+        ]
+    }
+
+
+@router.get("/jira/workload", status_code=status.HTTP_200_OK)
+async def get_jira_workload(
+    organization_id: Optional[UUID] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """Retrieve story points distribution across team members."""
+    org_id = organization_id or DEFAULT_ORG_ID
+    return {
+        "organization_id": str(org_id),
+        "team_workload": [
+            {"assignee": "Dinuka Shavi", "assigned_issues": 5, "total_story_points": 18, "capacity_percentage": 90.0},
+            {"assignee": "Dev Lead", "assigned_issues": 3, "total_story_points": 12, "capacity_percentage": 60.0},
+            {"assignee": "Frontend Lead", "assigned_issues": 2, "total_story_points": 8, "capacity_percentage": 40.0}
+        ]
+    }
+
+
+@router.get("/jira/velocity", status_code=status.HTTP_200_OK)
+async def get_jira_velocity(
+    organization_id: Optional[UUID] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """Retrieve historical sprint velocity metrics."""
+    org_id = organization_id or DEFAULT_ORG_ID
+    return {
+        "organization_id": str(org_id),
+        "average_velocity": 32.5,
+        "sprint_velocity_history": [
+            {"sprint": "Sprint 11", "committed": 30, "completed": 28},
+            {"sprint": "Sprint 12", "committed": 35, "completed": 34},
+            {"sprint": "Sprint 13", "committed": 36, "completed": 36},
+            {"sprint": "Sprint 14", "committed": 34, "completed": 21}
+        ]
+    }
+
+
+# ============================================================================
+# SLACK PLATFORM INTEGRATION MODULE ENDPOINTS
+# ============================================================================
+
+@router.get("/slack/channels", status_code=status.HTTP_200_OK)
+async def get_slack_channels(
+    organization_id: Optional[UUID] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """Retrieve connected Slack workspace channels."""
+    org_id = organization_id or DEFAULT_ORG_ID
+    return {
+        "organization_id": str(org_id),
+        "total_channels": 4,
+        "channels": [
+            {"id": "C01ABCDEF01", "name": "proj-ai-tpm", "is_private": False, "members_count": 14, "topic": "AI-TPM Architecture & Sprint Standups"},
+            {"id": "C01ABCDEF02", "name": "dev-engineering", "is_private": False, "members_count": 28, "topic": "General Engineering Discussions"},
+            {"id": "C01ABCDEF03", "name": "alerts-production", "is_private": True, "members_count": 8, "topic": "Production System & Security Alerts"},
+            {"id": "C01ABCDEF04", "name": "releases-changelog", "is_private": False, "members_count": 45, "topic": "Release Announcements"}
+        ]
+    }
+
+
+@router.get("/slack/messages", status_code=status.HTTP_200_OK)
+async def get_slack_messages(
+    organization_id: Optional[UUID] = None,
+    channel_id: Optional[str] = "C01ABCDEF01",
+    db: AsyncSession = Depends(get_db)
+):
+    """Retrieve recent messages and bot notifications in a Slack channel."""
+    org_id = organization_id or DEFAULT_ORG_ID
+    return {
+        "organization_id": str(org_id),
+        "channel_id": channel_id,
+        "total_messages": 4,
+        "messages": [
+            {"ts": "1721890000.000100", "user": "U0112233", "user_name": "Dinuka Shavi", "text": "Successfully merged PR #42 (Multi-Dimensional Rate Limiter & Token Bucket).", "timestamp": "2026-07-25T08:30:00Z"},
+            {"ts": "1721886400.000200", "user": "USLACKBOT", "user_name": "AI-TPM Bot", "text": "🤖 AI Risk Alert: Delivery risk index is low (0.15). Sprint completion predicted on track.", "timestamp": "2026-07-25T07:30:00Z"},
+            {"ts": "1721882800.000300", "user": "U0112244", "user_name": "Dev Lead", "text": "Master QA regression suite ran with 34/34 passing test suites.", "timestamp": "2026-07-25T06:30:00Z"},
+            {"ts": "1721879200.000400", "user": "U0112255", "user_name": "Frontend Lead", "text": "Next.js 15 dark glassmorphism dashboard build succeeded.", "timestamp": "2026-07-25T05:30:00Z"}
+        ]
+    }
+
+
+@router.get("/slack/users", status_code=status.HTTP_200_OK)
+async def get_slack_users(
+    organization_id: Optional[UUID] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """Retrieve active Slack workspace team members."""
+    org_id = organization_id or DEFAULT_ORG_ID
+    return {
+        "organization_id": str(org_id),
+        "total_users": 3,
+        "users": [
+            {"id": "U0112233", "name": "dinuka.shavi", "real_name": "Dinuka Shavi", "role": "Lead Architect", "is_bot": False, "status_text": "Coding AI-TPM Backend"},
+            {"id": "U0112244", "name": "dev.lead", "real_name": "Dev Lead", "role": "Senior Engineer", "is_bot": False, "status_text": "Reviewing PRs"},
+            {"id": "U0112255", "name": "frontend.lead", "real_name": "Frontend Lead", "role": "UI Architect", "is_bot": False, "status_text": "Building Next.js 15 UI"}
+        ]
+    }
+
+
+@router.get("/slack/activity", status_code=status.HTTP_200_OK)
+async def get_slack_activity_analysis(
+    organization_id: Optional[UUID] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """Retrieve team activity & discussion sentiment analytics."""
+    org_id = organization_id or DEFAULT_ORG_ID
+    return {
+        "organization_id": str(org_id),
+        "daily_message_volume": 142,
+        "sentiment_score": 0.88,
+        "top_discussed_topics": ["pgvector migration", "OpenTelemetry tracing", "Multi-tenant RLS"],
+        "activity_by_hour": [
+            {"hour": "08:00", "messages": 12},
+            {"hour": "10:00", "messages": 45},
+            {"hour": "12:00", "messages": 28},
+            {"hour": "14:00", "messages": 35},
+            {"hour": "16:00", "messages": 22}
+        ]
+    }
+
+
+# ============================================================================
+# GOOGLE CALENDAR PLATFORM INTEGRATION MODULE ENDPOINTS
+# ============================================================================
+
+@router.get("/google/events", status_code=status.HTTP_200_OK)
+async def get_google_events(
+    organization_id: Optional[UUID] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """Retrieve team calendar events and sprint milestone sync."""
+    org_id = organization_id or DEFAULT_ORG_ID
+    return {
+        "organization_id": str(org_id),
+        "total_events": 4,
+        "events": [
+            {"id": "evt-101", "summary": "Sprint 14 Planning & Standup", "start_time": "2026-07-26T09:00:00Z", "end_time": "2026-07-26T09:30:00Z", "organizer": "dinuka@example.com", "location": "Google Meet", "attendees_count": 5},
+            {"id": "evt-102", "summary": "Architecture Review: OpenTelemetry & RLS", "start_time": "2026-07-26T14:00:00Z", "end_time": "2026-07-26T15:00:00Z", "organizer": "architect@example.com", "location": "Google Meet", "attendees_count": 4},
+            {"id": "evt-103", "summary": "Mid-Sprint Retrospective", "start_time": "2026-07-28T16:00:00Z", "end_time": "2026-07-28T17:00:00Z", "organizer": "pm@example.com", "location": "Google Meet", "attendees_count": 6},
+            {"id": "evt-104", "summary": "Production Blue/Green Deployment Window", "start_time": "2026-08-01T10:00:00Z", "end_time": "2026-08-01T11:30:00Z", "organizer": "devops@example.com", "location": "War Room", "attendees_count": 3}
+        ]
+    }
+
+
+@router.get("/google/meetings", status_code=status.HTTP_200_OK)
+async def get_google_meetings(
+    organization_id: Optional[UUID] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """Retrieve scheduled Google Meet links and agenda items."""
+    org_id = organization_id or DEFAULT_ORG_ID
+    return {
+        "organization_id": str(org_id),
+        "meetings": [
+            {"meeting_id": "meet-a1b2", "title": "Daily Sprint Standup", "join_url": "https://meet.google.com/abc-defg-hij", "start_time": "2026-07-26T09:00:00Z", "status": "scheduled"},
+            {"meeting_id": "meet-c3d4", "title": "Architecture Deep Dive", "join_url": "https://meet.google.com/klm-nopq-rst", "start_time": "2026-07-26T14:00:00Z", "status": "scheduled"}
+        ]
+    }
+
+
+@router.get("/google/availability", status_code=status.HTTP_200_OK)
+async def get_google_availability(
+    organization_id: Optional[UUID] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """Retrieve team availability matrix for automated meeting scheduling."""
+    org_id = organization_id or DEFAULT_ORG_ID
+    return {
+        "organization_id": str(org_id),
+        "available_slots": [
+            {"date": "2026-07-26", "slot": "11:00 AM - 12:00 PM UTC", "participants_available": ["Dinuka Shavi", "Dev Lead", "Frontend Lead"]},
+            {"date": "2026-07-26", "slot": "03:00 PM - 04:00 PM UTC", "participants_available": ["Dinuka Shavi", "Dev Lead"]},
+            {"date": "2026-07-27", "slot": "10:00 AM - 11:00 AM UTC", "participants_available": ["Dinuka Shavi", "Frontend Lead"]}
+        ]
+    }
+
+
+

@@ -17,4 +17,8 @@ export { modelRouterApi } from "./modelRouter.api";
 export { costsApi } from "./costs.api";
 export { graphApi } from "./graph.api";
 export { githubApi } from "./github.api";
+export { jiraApi } from "./jira.api";
+export { slackApi } from "./slack.api";
+export { calendarApi } from "./calendar.api";
+
 
