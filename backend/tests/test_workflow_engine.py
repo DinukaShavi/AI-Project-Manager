@@ -10,6 +10,7 @@ from app.models.workflow import WorkflowDefinition, WorkflowExecution
 from app.workflows.dag import WorkflowDAG, WorkflowNode
 from app.services.workflow import WorkflowService
 from app.db.session import SessionLocal
+from tests._auth_helpers import create_authenticated_headers
 
 async def test_workflow_engine_flow():
     print("Initializing Workflow Engine validation tests...")
@@ -79,19 +80,21 @@ async def test_workflow_engine_flow():
                 assert "risk_evaluation" in node_outputs
                 print("SUCCESS: Multi-agent Sprint Review DAG executed successfully across 3 steps.")
 
+            auth_headers = await create_authenticated_headers(client, test_org_id)
+
             # 3. Test HTTP API Endpoint: POST /api/v1/workflows/definitions
             print("\nTest 3: Requesting POST /api/v1/workflows/definitions...")
             res = await client.post(
                 "/api/v1/workflows/definitions",
                 json={
-                    "organization_id": str(test_org_id),
                     "name": "Custom CI/CD Audit Workflow",
                     "description": "Custom automated code and architecture audit DAG",
                     "nodes": [
                         {"node_id": "review", "name": "Review PR", "step_type": "agent", "target": "code_analyst"},
                         {"node_id": "post_slack", "name": "Notify Slack", "step_type": "tool", "target": "slack_post_message", "input_params": {"channel": "#ci"}, "depends_on": ["review"]}
                     ]
-                }
+                },
+                headers=auth_headers
             )
             assert res.status_code == 201, f"Endpoint failed: {res.text}"
             def_json = res.json()
@@ -101,7 +104,7 @@ async def test_workflow_engine_flow():
 
             # 4. Test HTTP API Endpoint: GET /api/v1/workflows/definitions
             print("\nTest 4: Requesting GET /api/v1/workflows/definitions...")
-            res = await client.get(f"/api/v1/workflows/definitions?organization_id={test_org_id}")
+            res = await client.get("/api/v1/workflows/definitions", headers=auth_headers)
             assert res.status_code == 200
             defs_json = res.json()
             assert defs_json["definitions_count"] >= 1
@@ -112,10 +115,10 @@ async def test_workflow_engine_flow():
             res = await client.post(
                 "/api/v1/workflows/execute",
                 json={
-                    "organization_id": str(test_org_id),
                     "template": "architecture_audit",
                     "initial_context": {"component": "ContextEngine"}
-                }
+                },
+                headers=auth_headers
             )
             assert res.status_code == 200, f"Execution failed: {res.text}"
             exec_json = res.json()
@@ -126,12 +129,28 @@ async def test_workflow_engine_flow():
 
             # 6. Test HTTP API Endpoint: GET /api/v1/workflows/executions/{id}
             print("\nTest 6: Requesting GET /api/v1/workflows/executions/{execution_id}...")
-            res = await client.get(f"/api/v1/workflows/executions/{exec_id}")
+            res = await client.get(f"/api/v1/workflows/executions/{exec_id}", headers=auth_headers)
             assert res.status_code == 200
             state_json = res.json()
             assert state_json["execution_id"] == str(exec_id)
             assert "arch_review" in state_json["state"]["node_outputs"]
             print("SUCCESS: Workflow execution state retrieved successfully via API.")
+
+            # 7. Test HITL Approval Gate at the workflow-DAG level: a tool node targeting a
+            # high-risk side-effect tool must halt DAG execution rather than silently running it.
+            print("\nTest 7: Requesting POST /api/v1/workflows/execute with a high-risk tool node (HITL gate)...")
+            res = await client.post(
+                "/api/v1/workflows/execute",
+                json={
+                    "nodes": [
+                        {"node_id": "merge", "name": "Merge Release PR", "step_type": "tool", "target": "merge_pull_request", "input_params": {"pr_number": 99}}
+                    ]
+                },
+                headers=auth_headers
+            )
+            assert res.status_code == 400, f"Expected workflow to be halted by the HITL gate, got {res.status_code}: {res.text}"
+            assert "waiting_approval" in res.text.lower() or "did not complete" in res.text.lower()
+            print("SUCCESS: Workflow engine correctly halted on an ungated high-risk tool step instead of executing it.")
 
         finally:
             # Clean up database records

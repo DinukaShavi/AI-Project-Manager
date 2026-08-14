@@ -2,7 +2,8 @@ from fastapi import APIRouter
 from app.api.v1 import (
     auth, users, integrations, context, agents,
     tools, workflows, memory, planning, projects,
-    tasks, analytics, workspaces, websockets, prompts, evaluations, model_router, costs, memory_lifecycle, observability, rate_limiter, security_guard, graph_evolution, tenant_isolation
+    tasks, analytics, workspaces, websockets, prompts, evaluations, model_router, costs, memory_lifecycle, observability, rate_limiter, security_guard, graph_evolution, tenant_isolation,
+    audit_logs, organizations, notifications, recommendations, events
 )
 
 api_router = APIRouter()
@@ -29,4 +30,9 @@ api_router.include_router(rate_limiter.router, tags=["rate-limit"])
 api_router.include_router(security_guard.router, tags=["security-guard"])
 api_router.include_router(graph_evolution.router, tags=["graph-evolution"])
 api_router.include_router(tenant_isolation.router, tags=["tenants"])
+api_router.include_router(audit_logs.router, prefix="/audit-logs", tags=["audit-logs"])
+api_router.include_router(organizations.router, prefix="/organizations", tags=["organizations"])
+api_router.include_router(notifications.router, prefix="/notifications", tags=["notifications"])
+api_router.include_router(recommendations.router, prefix="/recommendations", tags=["recommendations"])
+api_router.include_router(events.router, prefix="/events", tags=["events"])
 api_router.include_router(websockets.router, tags=["realtime"])

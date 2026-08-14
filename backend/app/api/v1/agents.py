@@ -3,7 +3,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.api.deps import get_db
+from app.api.deps import get_db, get_current_user
+from app.models.tenant import User
 from app.services.agent import AgentService
 
 router = APIRouter()
@@ -11,14 +12,14 @@ router = APIRouter()
 class AgentExecuteRequest(BaseModel):
     agent_type: str = Field(..., description="Agent persona type: tpm, code_analyst, risk_manager, architect")
     task: str = Field(..., description="Task description or prompt for the agent")
-    organization_id: UUID
     project_id: Optional[UUID] = None
     context: Optional[Dict[str, Any]] = None
 
 @router.post("/execute", status_code=status.HTTP_200_OK)
 async def execute_agent(
     payload: AgentExecuteRequest,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Execute a specialized AI agent persona and return structured findings."""
     service = AgentService(db)
@@ -26,7 +27,7 @@ async def execute_agent(
         execution = await service.execute_agent(
             agent_type=payload.agent_type,
             task_input=payload.task,
-            organization_id=payload.organization_id,
+            organization_id=current_user.organization_id,
             project_id=payload.project_id,
             context=payload.context
         )
@@ -44,11 +45,12 @@ async def execute_agent(
 @router.get("/executions/{execution_id}")
 async def get_execution(
     execution_id: UUID,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """Retrieve agent execution log by ID."""
+    """Retrieve agent execution log by ID, scoped to the authenticated user's organization."""
     service = AgentService(db)
-    execution = await service.get_execution(execution_id)
+    execution = await service.get_execution(execution_id, current_user.organization_id)
     if not execution:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Execution record not found")
     return {
@@ -72,11 +74,13 @@ class StateTransitionRequest(BaseModel):
 async def transition_agent_state(
     execution_id: UUID,
     payload: StateTransitionRequest,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """Trigger valid State Machine transition for an active agent execution."""
+    """Trigger valid State Machine transition for an active agent execution owned by the
+    authenticated user's organization."""
     service = AgentService(db)
-    execution = await service.get_execution(execution_id)
+    execution = await service.get_execution(execution_id, current_user.organization_id)
     if not execution:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent execution not found.")
 

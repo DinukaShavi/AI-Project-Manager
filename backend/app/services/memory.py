@@ -69,9 +69,63 @@ class MemoryService:
         project_id: Optional[UUID] = None,
         limit: int = 5
     ) -> List[Dict[str, Any]]:
-        """Perform vector similarity search across long-term agent memories."""
+        """Perform vector similarity search across long-term agent memories.
+
+        Uses pgvector's native <=> cosine-distance operator (ORDER BY + LIMIT pushed down to
+        Postgres) when settings.USE_PGVECTOR is enabled — matching the same real-column-type
+        gate used by ContextRepository.search_context. Falls back to the full-scan Python
+        cosine similarity otherwise (the actual local dev default, since pgvector isn't
+        installed there), preserving prior behavior exactly.
+        """
+        from app.core.config import settings
         query_vec = await self.embedding_generator.generate_embedding(query_text)
-        
+
+        if settings.USE_PGVECTOR:
+            top_matches = await self._search_long_term_memory_native(organization_id, query_vec, project_id, limit)
+        else:
+            top_matches = await self._search_long_term_memory_python(organization_id, query_vec, project_id, limit)
+
+        return [
+            {
+                "memory_id": str(mem.id),
+                "key": mem.key,
+                "content": mem.content,
+                "score": float(score),
+                "agent_type": mem.agent_type,
+                "value_json": mem.value_json
+            }
+            for mem, score in top_matches
+        ]
+
+    async def _search_long_term_memory_native(
+        self,
+        organization_id: UUID,
+        query_vec: List[float],
+        project_id: Optional[UUID],
+        limit: int
+    ):
+        distance_expr = AgentMemory.embedding.cosine_distance(query_vec)
+        query = select(AgentMemory, distance_expr.label("distance")).where(
+            AgentMemory.organization_id == organization_id,
+            AgentMemory.memory_type == "long_term",
+            AgentMemory.embedding != None
+        )
+        if project_id:
+            query = query.where(AgentMemory.project_id == project_id)
+        query = query.order_by(distance_expr).limit(limit)
+
+        res = await self.session.execute(query)
+        # cosine_distance = 1 - cosine_similarity; convert back to preserve the existing
+        # "higher score = more relevant" contract.
+        return [(mem, 1.0 - float(distance)) for mem, distance in res.all()]
+
+    async def _search_long_term_memory_python(
+        self,
+        organization_id: UUID,
+        query_vec: List[float],
+        project_id: Optional[UUID],
+        limit: int
+    ):
         query = select(AgentMemory).where(
             AgentMemory.organization_id == organization_id,
             AgentMemory.memory_type == "long_term",
@@ -93,22 +147,6 @@ class MemoryService:
                 return 0.0
             return dot / (norm1 * norm2)
 
-        scored_memories = []
-        for mem in memories:
-            score = cosine_similarity(query_vec, mem.embedding)
-            scored_memories.append((mem, score))
-
+        scored_memories = [(mem, cosine_similarity(query_vec, mem.embedding)) for mem in memories]
         scored_memories.sort(key=lambda x: x[1], reverse=True)
-        top_matches = scored_memories[:limit]
-
-        return [
-            {
-                "memory_id": str(mem.id),
-                "key": mem.key,
-                "content": mem.content,
-                "score": float(score),
-                "agent_type": mem.agent_type,
-                "value_json": mem.value_json
-            }
-            for mem, score in top_matches
-        ]
+        return scored_memories[:limit]

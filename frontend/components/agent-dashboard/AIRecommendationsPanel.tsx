@@ -1,39 +1,58 @@
 "use client";
 
-import React from "react";
-import { Sparkles, Calendar, ArrowRight, CheckCircle2, AlertCircle, ShieldAlert } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { Sparkles, ShieldAlert, ShieldCheck, ThumbsDown, ThumbsUp } from "lucide-react";
+import { recommendationApi } from "../../api/recommendation.api";
+import { ApiError } from "../../api/client";
+import { Recommendation, RecommendationActionType } from "../../types/recommendation";
 
-interface Props {
-  onExecuteRecommendation?: (rec: string) => void;
+function impactLabel(score: number): { label: string; className: string } {
+  if (score >= 0.8) return { label: "High", className: "text-rose-300" };
+  if (score >= 0.5) return { label: "Medium", className: "text-amber-300" };
+  return { label: "Low", className: "text-slate-400" };
 }
 
-export default function AIRecommendationsPanel({ onExecuteRecommendation }: Props) {
-  const recommendations = [
-    {
-      id: 1,
-      title: "Rebalance Task Allocation for Dinuka Shavi",
-      category: "Task Prioritization",
-      impact: "High",
-      reason: "Dinuka Shavi is currently operating at 90% story point capacity. Reassigning TPM-105 will reduce burn risk.",
-      actionLabel: "Rebalance Workload",
-    },
-    {
-      id: 2,
-      title: "Schedule 15-Min Sync for Pull Request #42",
-      category: "Meeting Recommendation",
-      impact: "Medium",
-      reason: "PR #42 has been pending review for 28 hours with 420 additions. A quick sync will prevent sprint spillover.",
-      actionLabel: "Schedule Standup",
-    },
-    {
-      id: 3,
-      title: "Trigger Automated Knowledge Graph Decay Sweep",
-      category: "Architecture Audit",
-      impact: "Low",
-      reason: "Knowledge Graph has 4 stale implicit edges older than 30 days. Running a sweep optimizes graph traversal.",
-      actionLabel: "Run Decay Sweep",
-    },
-  ];
+export default function AIRecommendationsPanel() {
+  const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [actioningId, setActioningId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await recommendationApi.list({ status: "active" });
+        if (!cancelled) setRecommendations(res.recommendations);
+      } catch (err) {
+        console.error("Failed to load recommendations:", err);
+        if (!cancelled) setError(true);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Dismiss/Accept a recommendation (ui_ux_design.md section 13: "Dismiss recommendation
+  // (logs feedback), Accept recommendation (triggers workflow)"). Once actioned, a
+  // recommendation is no longer 'active' -- it's removed from this active-only list rather
+  // than re-fetched, since a background refetch has no source of new items to reconcile with.
+  const handleAction = async (id: string, action: RecommendationActionType) => {
+    setActioningId(id);
+    setActionError(null);
+    try {
+      await recommendationApi.applyAction(id, action);
+      setRecommendations((prev) => prev.filter((r) => r.id !== id));
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : `Failed to ${action} recommendation.`);
+    } finally {
+      setActioningId(null);
+    }
+  };
 
   return (
     <div className="p-6 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-xl space-y-4 shadow-2xl">
@@ -47,33 +66,64 @@ export default function AIRecommendationsPanel({ onExecuteRecommendation }: Prop
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1">
-        {recommendations.map((rec) => (
-          <div
-            key={rec.id}
-            className="p-4 rounded-xl bg-white/5 border border-white/5 hover:border-amber-500/30 transition-all flex flex-col justify-between space-y-3"
-          >
-            <div>
-              <div className="flex items-center justify-between">
-                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-300 border border-amber-500/20">
-                  {rec.category}
-                </span>
-                <span className="text-[10px] font-semibold text-slate-400">Impact: {rec.impact}</span>
-              </div>
-              <h4 className="text-sm font-bold text-white mt-2">{rec.title}</h4>
-              <p className="text-xs text-slate-400 mt-1 line-clamp-3">{rec.reason}</p>
-            </div>
+      {actionError && (
+        <div className="flex items-center gap-2 text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded-lg px-3 py-2">
+          <ShieldAlert className="w-3.5 h-3.5 shrink-0" /> {actionError}
+        </div>
+      )}
 
-            <button
-              onClick={() => onExecuteRecommendation && onExecuteRecommendation(rec.title)}
-              className="w-full px-3 py-2 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 text-xs font-semibold border border-amber-500/20 transition-all flex items-center justify-center gap-1.5"
-            >
-              <span>{rec.actionLabel}</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        ))}
-      </div>
+      {loading ? (
+        <div className="text-sm text-slate-400 py-6 text-center">Loading recommendations...</div>
+      ) : error ? (
+        <div className="flex items-center gap-2 text-sm text-rose-300 py-4">
+          <ShieldAlert className="w-4 h-4" /> Failed to load recommendations.
+        </div>
+      ) : recommendations.length === 0 ? (
+        <div className="flex flex-col items-center gap-2 text-sm text-slate-400 py-6 text-center">
+          <ShieldCheck className="w-8 h-8 text-emerald-400" />
+          All clear! No project risks detected.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1">
+          {recommendations.map((rec) => {
+            const impact = impactLabel(rec.score);
+            const busy = actioningId === rec.id;
+            return (
+              <div
+                key={rec.id}
+                className="p-4 rounded-xl bg-white/5 border border-white/5 hover:border-amber-500/30 transition-all flex flex-col justify-between space-y-3"
+              >
+                <div>
+                  <div className="flex items-center justify-between">
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-300 border border-amber-500/20">
+                      Score {rec.score.toFixed(2)}
+                    </span>
+                    <span className={`text-[10px] font-semibold ${impact.className}`}>Impact: {impact.label}</span>
+                  </div>
+                  <h4 className="text-sm font-bold text-white mt-2">{rec.title}</h4>
+                  <p className="text-xs text-slate-400 mt-1 line-clamp-3">{rec.description}</p>
+                </div>
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    onClick={() => handleAction(rec.id, "accept")}
+                    disabled={busy}
+                    className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-semibold bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all disabled:opacity-50"
+                  >
+                    <ThumbsUp className="w-3 h-3" /> Accept
+                  </button>
+                  <button
+                    onClick={() => handleAction(rec.id, "dismiss")}
+                    disabled={busy}
+                    className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-semibold bg-white/5 text-slate-300 border border-white/10 hover:bg-white/10 transition-all disabled:opacity-50"
+                  >
+                    <ThumbsDown className="w-3 h-3" /> Dismiss
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

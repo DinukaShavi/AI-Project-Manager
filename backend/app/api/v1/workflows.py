@@ -3,7 +3,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.api.deps import get_db
+from app.api.deps import get_db, get_current_user
+from app.models.tenant import User
 from app.services.workflow import WorkflowService
 from app.workflows.dag import WorkflowDAG, WorkflowNode
 
@@ -18,13 +19,11 @@ class NodeSchema(BaseModel):
     depends_on: Optional[List[str]] = None
 
 class WorkflowDefinitionCreate(BaseModel):
-    organization_id: UUID
     name: str
     description: str
     nodes: List[NodeSchema]
 
 class WorkflowExecuteRequest(BaseModel):
-    organization_id: UUID
     template: Optional[str] = Field(None, description="Pre-built template: 'sprint_review', 'architecture_audit'")
     definition_id: Optional[UUID] = None
     project_id: Optional[UUID] = None
@@ -34,7 +33,8 @@ class WorkflowExecuteRequest(BaseModel):
 @router.post("/definitions", status_code=status.HTTP_201_CREATED)
 async def create_definition(
     payload: WorkflowDefinitionCreate,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Create a new Workflow DAG definition."""
     dag = WorkflowDAG()
@@ -54,7 +54,7 @@ async def create_definition(
             name=payload.name,
             description=payload.description,
             dag=dag,
-            organization_id=payload.organization_id
+            organization_id=current_user.organization_id
         )
         return {
             "definition_id": str(wf_def.id),
@@ -67,12 +67,12 @@ async def create_definition(
 
 @router.get("/definitions")
 async def list_definitions(
-    organization_id: UUID,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """List all workflow definitions for an organization."""
+    """List all workflow definitions for the authenticated user's organization."""
     service = WorkflowService(db)
-    defs = await service.list_definitions(organization_id)
+    defs = await service.list_definitions(current_user.organization_id)
     return {
         "definitions_count": len(defs),
         "definitions": [
@@ -89,7 +89,8 @@ async def list_definitions(
 @router.post("/execute", status_code=status.HTTP_200_OK)
 async def execute_workflow(
     payload: WorkflowExecuteRequest,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Execute a multi-agent Workflow DAG by template, definition ID, or node list."""
     service = WorkflowService(db)
@@ -119,10 +120,11 @@ async def execute_workflow(
     try:
         execution = await service.execute_workflow(
             dag=dag,
-            organization_id=payload.organization_id,
+            organization_id=current_user.organization_id,
             project_id=payload.project_id,
             definition_id=payload.definition_id,
-            initial_context=payload.initial_context
+            initial_context=payload.initial_context,
+            user_id=current_user.id
         )
         return {
             "execution_id": str(execution.id),
@@ -135,11 +137,12 @@ async def execute_workflow(
 @router.get("/executions/{execution_id}")
 async def get_execution(
     execution_id: UUID,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """Retrieve workflow execution state by ID."""
+    """Retrieve workflow execution state by ID, scoped to the authenticated user's organization."""
     service = WorkflowService(db)
-    execution = await service.get_execution(execution_id)
+    execution = await service.get_execution(execution_id, current_user.organization_id)
     if not execution:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow execution not found")
     return {

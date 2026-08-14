@@ -40,8 +40,6 @@ dist/
 # =========================================================================
 # Environment Variables & Secrets
 # =========================================================================
-.env
-.env.local
 .env.development.local
 .env.test.local
 .env.production.local
@@ -52,7 +50,6 @@ dist/
 # =========================================================================
 # IDEs and Editors
 # =========================================================================
-.vscode/
 !.vscode/extensions.json
 .idea/
 *.suo
@@ -74,3 +71,4 @@ $RECYCLE.BIN/
 *.msm
 *.msp
 *.lnk
+config.bat

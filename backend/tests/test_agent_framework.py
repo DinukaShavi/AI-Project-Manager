@@ -13,6 +13,7 @@ from app.agents.risk_manager import RiskManagerAgent
 from app.agents.architect import ArchitectureReviewerAgent
 from app.services.agent import AgentService
 from app.db.session import SessionLocal
+from tests._auth_helpers import create_authenticated_headers
 
 async def test_agent_framework_flow():
     print("Initializing AI Agent Framework validation tests...")
@@ -80,6 +81,8 @@ async def test_agent_framework_flow():
                 assert execution.execution_time_ms >= 0
                 print(f"SUCCESS: Agent execution logged in DB. Execution ID: {execution.id}")
 
+            auth_headers = await create_authenticated_headers(client, test_org_id)
+
             # 4. Test HTTP API Endpoint: POST /api/v1/agents/execute
             print("\nTest 4: Requesting POST /api/v1/agents/execute...")
             res = await client.post(
@@ -87,9 +90,9 @@ async def test_agent_framework_flow():
                 json={
                     "agent_type": "architect",
                     "task": "Review PostgreSQL pgvector fallback strategy",
-                    "organization_id": str(test_org_id),
                     "context": {"database": "postgresql"}
-                }
+                },
+                headers=auth_headers
             )
             assert res.status_code == 200, f"Endpoint failed: {res.text}"
             res_json = res.json()
@@ -101,7 +104,7 @@ async def test_agent_framework_flow():
 
             # 5. Test HTTP API Endpoint: GET /api/v1/agents/executions/{id}
             print("\nTest 5: Requesting GET /api/v1/agents/executions/{execution_id}...")
-            res = await client.get(f"/api/v1/agents/executions/{exec_id}")
+            res = await client.get(f"/api/v1/agents/executions/{exec_id}", headers=auth_headers)
             assert res.status_code == 200, f"Get execution failed: {res.text}"
             log_json = res.json()
             assert log_json["execution_id"] == str(exec_id)

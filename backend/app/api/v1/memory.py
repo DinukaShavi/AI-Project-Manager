@@ -3,13 +3,13 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.api.deps import get_db
+from app.api.deps import get_db, get_current_user
+from app.models.tenant import User
 from app.services.memory import MemoryService
 
 router = APIRouter()
 
 class MemoryStoreRequest(BaseModel):
-    organization_id: UUID
     memory_type: str = Field(..., description="Memory type: 'short_term', 'long_term', 'entity'")
     key: Optional[str] = None
     content: Optional[str] = None
@@ -18,7 +18,6 @@ class MemoryStoreRequest(BaseModel):
     project_id: Optional[UUID] = None
 
 class MemorySearchRequest(BaseModel):
-    organization_id: UUID
     query: str = Field(..., description="Query text to search long-term memories")
     project_id: Optional[UUID] = None
     limit: int = Field(5, ge=1, le=50)
@@ -26,12 +25,13 @@ class MemorySearchRequest(BaseModel):
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def store_memory(
     payload: MemoryStoreRequest,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Store short-term, long-term, or entity memory entry."""
     service = MemoryService(db)
     memory = await service.store_memory(
-        organization_id=payload.organization_id,
+        organization_id=current_user.organization_id,
         memory_type=payload.memory_type,
         key=payload.key,
         content=payload.content,
@@ -48,16 +48,16 @@ async def store_memory(
 
 @router.get("", status_code=status.HTTP_200_OK)
 async def recall_memory(
-    organization_id: UUID,
     key: str,
     memory_type: Optional[str] = None,
     agent_type: Optional[str] = None,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Recall memory entry by key."""
     service = MemoryService(db)
     memory = await service.recall_memory(
-        organization_id=organization_id,
+        organization_id=current_user.organization_id,
         key=key,
         memory_type=memory_type,
         agent_type=agent_type
@@ -76,12 +76,13 @@ async def recall_memory(
 @router.post("/search", status_code=status.HTTP_200_OK)
 async def search_memory(
     payload: MemorySearchRequest,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Execute vector similarity search over long-term agent memories."""
     service = MemoryService(db)
     results = await service.search_long_term_memory(
-        organization_id=payload.organization_id,
+        organization_id=current_user.organization_id,
         query_text=payload.query,
         project_id=payload.project_id,
         limit=payload.limit

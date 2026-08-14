@@ -11,6 +11,7 @@ from app.models.tenant import Organization
 from app.models.agent import AgentExecution
 from app.services.agent import AgentService
 from app.db.session import SessionLocal
+from tests._auth_helpers import create_authenticated_headers
 
 async def test_agent_state_machine_flow():
     print("Initializing Agent State Machine validation tests...")
@@ -99,13 +100,16 @@ async def test_agent_state_machine_flow():
                 await session.commit()
                 target_exec_id = exec_rec.id
 
+            auth_headers = await create_authenticated_headers(client, test_org_id)
+
             # Transition via API: EXECUTING -> WAITING_APPROVAL
             res = await client.post(
                 f"/api/v1/agents/executions/{target_exec_id}/transition",
                 json={
                     "target_state": "WAITING_APPROVAL",
                     "reason": "Requires manager approval for budget modification"
-                }
+                },
+                headers=auth_headers
             )
             assert res.status_code == 200, f"Transition failed: {res.text}"
             data = res.json()

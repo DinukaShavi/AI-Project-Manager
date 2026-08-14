@@ -4,11 +4,30 @@ import {
   GitHubPullRequestsResponse,
   GitHubCommitsResponse,
   GitHubIssuesResponse,
+  LinkGitHubRepositoryRequest,
+  LinkGitHubRepositoryResponse,
+  DiscoverGitHubRepositoriesResponse,
+  LinkedGitHubRepositoriesResponse,
 } from "../types/github";
 
 export const githubApi = {
   getRepositories: async (orgId: string): Promise<GitHubRepositoriesResponse> => {
     return httpClient<GitHubRepositoriesResponse>(`/integrations/github/repositories?organization_id=${orgId}`);
+  },
+
+  linkRepository: async (payload: LinkGitHubRepositoryRequest): Promise<LinkGitHubRepositoryResponse> => {
+    return httpClient<LinkGitHubRepositoryResponse>("/integrations/github/repositories", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+
+  discoverRepositories: async (): Promise<DiscoverGitHubRepositoriesResponse> => {
+    return httpClient<DiscoverGitHubRepositoriesResponse>("/integrations/github/discover-repositories");
+  },
+
+  getLinkedRepositories: async (projectId: string): Promise<LinkedGitHubRepositoriesResponse> => {
+    return httpClient<LinkedGitHubRepositoriesResponse>(`/integrations/github/linked-repositories?project_id=${projectId}`);
   },
 
   getPullRequests: async (orgId: string, repository?: string): Promise<GitHubPullRequestsResponse> => {

@@ -48,7 +48,13 @@ class PlanningService:
         """Decompose or fetch an HTN goal plan and execute its WorkflowDAG."""
         plan = None
         if plan_id:
-            res = await self.session.execute(select(AgentPlan).where(AgentPlan.id == plan_id))
+            # Scoped to the caller's organization -- without this filter, any caller could
+            # supply another organization's plan_id to both read its goal/steps and trigger
+            # execution of it (same IDOR class already fixed for Projects/Tasks/Analytics/
+            # Agent & Workflow executions).
+            res = await self.session.execute(
+                select(AgentPlan).where(AgentPlan.id == plan_id, AgentPlan.organization_id == organization_id)
+            )
             plan = res.scalar_one_or_none()
             if not plan:
                 raise ValueError(f"Plan ID '{plan_id}' not found.")
@@ -81,7 +87,9 @@ class PlanningService:
             await self.session.commit()
             raise e
 
-    async def get_plan(self, plan_id: UUID) -> Optional[AgentPlan]:
-        """Fetch plan record by ID."""
-        res = await self.session.execute(select(AgentPlan).where(AgentPlan.id == plan_id))
+    async def get_plan(self, plan_id: UUID, organization_id: UUID) -> Optional[AgentPlan]:
+        """Fetch plan record by ID, scoped to the caller's organization."""
+        res = await self.session.execute(
+            select(AgentPlan).where(AgentPlan.id == plan_id, AgentPlan.organization_id == organization_id)
+        )
         return res.scalar_one_or_none()

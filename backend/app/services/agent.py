@@ -64,6 +64,14 @@ class AgentService:
                 proj = Project(id=project_id, workspace_id=ws.id, name="Default Demo Project")
                 self.session.add(proj)
                 await self.session.flush()
+            elif proj.organization_id != organization_id:
+                # project_id is a UUID primary key with global (not per-organization)
+                # uniqueness -- without this check, any organization could attach another
+                # organization's real project to its own AgentExecution simply by supplying
+                # that project's id (the "auto-create if missing" convenience above would
+                # otherwise silently skip creation and reuse the existing row regardless of
+                # which organization actually owns it).
+                raise ValueError(f"Project '{project_id}' not found in this organization.")
 
         # Create AgentExecution record with CREATED state
         execution = AgentExecution(
@@ -110,7 +118,19 @@ class AgentService:
 
         return updated_exec
 
-    async def get_execution(self, execution_id: UUID) -> Optional[AgentExecution]:
-        """Fetch execution record by ID."""
-        res = await self.session.execute(select(AgentExecution).where(AgentExecution.id == execution_id))
+    async def get_execution(self, execution_id: UUID, organization_id: UUID) -> Optional[AgentExecution]:
+        """Fetch an execution record by ID, scoped to the caller's organization.
+
+        Every real caller of this method (GET /agents/executions/{id} and
+        POST /agents/executions/{id}/transition) is an authenticated, tenant-scoped
+        request -- filtering by organization_id in this single query (rather than a
+        separate ownership-check query) is both the smallest correct fix and enough on
+        its own: an execution belonging to a different organization, or one somehow
+        persisted with organization_id left NULL, simply never matches and this returns
+        None, which both endpoints already turn into a generic 404. That also avoids
+        leaking whether a given execution_id exists at all for another tenant.
+        """
+        res = await self.session.execute(
+            select(AgentExecution).where(AgentExecution.id == execution_id, AgentExecution.organization_id == organization_id)
+        )
         return res.scalar_one_or_none()

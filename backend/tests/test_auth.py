@@ -9,8 +9,10 @@ import app.db.base # Register models
 from app.main import app
 from app.core.config import settings
 from app.core.security import verify_password, get_password_hash
-from app.models.tenant import Organization, User
+from app.models.tenant import Organization, User, Role
+from app.models.audit import AuditLog
 from app.db.session import SessionLocal
+from tests._auth_helpers import create_authenticated_headers
 
 async def test_auth_and_user_flow():
     print("Initializing Authentication and User API integration tests...")
@@ -94,7 +96,116 @@ async def test_auth_and_user_flow():
             new_tokens = response.json()
             assert "access_token" in new_tokens
             assert "refresh_token" in new_tokens
+            rotated_refresh_token = new_tokens["refresh_token"]
             print("SUCCESS: Token rotation succeeded.")
+
+            # 6. A successful refresh must create an 'auth:token_refresh_success' audit
+            # entry, correctly attributed to the real user/organization, with no
+            # credential material in its details.
+            print("\nTest 6: Verifying a successful refresh creates the expected audit entry...")
+            async with SessionLocal() as session:
+                res_db = await session.execute(
+                    select(AuditLog).where(AuditLog.organization_id == test_org_id, AuditLog.action == "auth:token_refresh_success")
+                )
+                success_logs = res_db.scalars().all()
+            assert len(success_logs) == 1
+            assert success_logs[0].user_id == test_user_id
+            for secret in [access_token, refresh_token, rotated_refresh_token]:
+                assert secret not in str(success_logs[0].details)
+            print("SUCCESS: 'auth:token_refresh_success' audit entry recorded with no leaked token material.")
+
+            # 7. A refresh attempt with a syntactically-invalid/garbage token has no
+            # verifiable identity at all -- it must be rejected (401) but must NOT create
+            # any audit row, since AuditService.log() requires a real organization_id that
+            # cannot be safely determined here (never fabricate one).
+            print("\nTest 7: Verifying an unattributable invalid-token rejection creates NO audit row...")
+            async with SessionLocal() as session:
+                before_count = len((await session.execute(
+                    select(AuditLog).where(AuditLog.organization_id == test_org_id)
+                )).scalars().all())
+            response = await client.post("/api/v1/auth/refresh", json={"refresh_token": "not-a-real-jwt-at-all"})
+            assert response.status_code == 401
+            async with SessionLocal() as session:
+                after_count = len((await session.execute(
+                    select(AuditLog).where(AuditLog.organization_id == test_org_id)
+                )).scalars().all())
+            assert after_count == before_count, "An unattributable invalid-token rejection must not create an audit row"
+            print("SUCCESS: Invalid/unattributable token rejection correctly created no audit row.")
+
+            # 8. A refresh attempt for a user that has since been soft-deleted DOES have a
+            # safely-known organization (the token's signature is valid and the user row
+            # was found) -- this rejection case must be audited.
+            print("\nTest 8: Verifying a refresh for a soft-deleted user creates 'auth:token_refresh_failed'...")
+            async with SessionLocal() as session:
+                db_user = await session.get(User, test_user_id)
+                db_user.deleted_at = datetime.now(timezone.utc)
+                await session.commit()
+
+            response = await client.post("/api/v1/auth/refresh", json={"refresh_token": rotated_refresh_token})
+            assert response.status_code == 401, f"Expected 401 for a soft-deleted user, got {response.status_code}"
+
+            async with SessionLocal() as session:
+                res_db = await session.execute(
+                    select(AuditLog).where(AuditLog.organization_id == test_org_id, AuditLog.action == "auth:token_refresh_failed")
+                )
+                failed_logs = res_db.scalars().all()
+            assert len(failed_logs) == 1
+            assert failed_logs[0].user_id == test_user_id
+            assert failed_logs[0].details.get("reason") == "user_deleted"
+            for secret in [access_token, refresh_token, rotated_refresh_token]:
+                assert secret not in str(failed_logs[0].details)
+            print("SUCCESS: 'auth:token_refresh_failed' audit entry recorded for the soft-deleted-user rejection, with no leaked token material.")
+
+            # 9. Cross-tenant isolation: an OrgAdmin from a different organization cannot
+            # see this organization's refresh audit trail via the real audit-log endpoint.
+            print("\nTest 9: Verifying cross-tenant isolation of the refresh audit trail...")
+            other_org_suffix = uuid.uuid4().hex[:6]
+            async with SessionLocal() as session:
+                other_org = Organization(name=f"Auth Refresh Other Org {other_org_suffix}", domain=f"authrefresh-other-{other_org_suffix}.com")
+                session.add(other_org)
+                await session.flush()
+                other_org_id = other_org.id
+
+                org_admin_role = (await session.execute(select(Role).where(Role.name == "OrgAdmin"))).scalar_one()
+                own_org_admin_role = org_admin_role
+                own_admin = User(
+                    organization_id=test_org_id, email=f"refresh-admin-{suffix}@example.com",
+                    full_name="Refresh Admin", hashed_password=get_password_hash("AdminPass123!")
+                )
+                own_admin.roles.append(own_org_admin_role)
+                session.add(own_admin)
+                await session.commit()
+                own_admin_id = own_admin.id
+
+            login_res = await client.post("/api/v1/auth/login", json={"email": f"refresh-admin-{suffix}@example.com", "password": "AdminPass123!"})
+            assert login_res.status_code == 200, login_res.text
+            own_admin_headers = {"Authorization": f"Bearer {login_res.json()['access_token']}"}
+            other_admin_headers = await create_authenticated_headers(client, other_org_id)
+            try:
+                res = await client.get("/api/v1/audit-logs", headers=other_admin_headers)
+                assert res.status_code in (200, 403)
+                if res.status_code == 200:
+                    other_actions = {e["action"] for e in res.json()["entries"]}
+                    assert "auth:token_refresh_success" not in other_actions
+                    assert "auth:token_refresh_failed" not in other_actions
+
+                res = await client.get("/api/v1/audit-logs", headers=own_admin_headers)
+                assert res.status_code == 200, res.text
+                own_actions = {e["action"] for e in res.json()["entries"]}
+                assert "auth:token_refresh_success" in own_actions
+                assert "auth:token_refresh_failed" in own_actions
+                print("SUCCESS: Refresh audit entries are correctly tenant-isolated; the owning org's admin sees both.")
+            finally:
+                async with SessionLocal() as session:
+                    res_u = await session.execute(select(User).where(User.organization_id == other_org_id))
+                    for u in res_u.scalars().all():
+                        await session.delete(u)
+                    await session.commit()
+                    res_o = await session.execute(select(Organization).where(Organization.id == other_org_id))
+                    db_other_org = res_o.scalar_one_or_none()
+                    if db_other_org:
+                        await session.delete(db_other_org)
+                    await session.commit()
 
         finally:
             # Cleanup test records

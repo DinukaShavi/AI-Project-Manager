@@ -1,9 +1,33 @@
 import { httpClient } from "./client";
-import { SlackChannel, SlackMessage, SlackUser, SlackActivityAnalysis } from "../types/slack";
+import {
+  SlackChannel,
+  SlackMessage,
+  SlackUser,
+  SlackActivityAnalysis,
+  SlackChannelMappingRequest,
+  SlackChannelMappingResponse,
+  DiscoverSlackChannelsResponse,
+  MappedSlackChannelsResponse,
+} from "../types/slack";
 
 export const slackApi = {
   getChannels: async (orgId: string): Promise<{ channels: SlackChannel[] }> => {
     return httpClient<{ channels: SlackChannel[] }>(`/integrations/slack/channels?organization_id=${orgId}`);
+  },
+
+  mapChannelToProject: async (payload: SlackChannelMappingRequest): Promise<SlackChannelMappingResponse> => {
+    return httpClient<SlackChannelMappingResponse>("/integrations/slack/mappings", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+
+  discoverChannels: async (): Promise<DiscoverSlackChannelsResponse> => {
+    return httpClient<DiscoverSlackChannelsResponse>("/integrations/slack/discover-channels");
+  },
+
+  getMappedChannels: async (projectId: string): Promise<MappedSlackChannelsResponse> => {
+    return httpClient<MappedSlackChannelsResponse>(`/integrations/slack/mapped-channels?project_id=${projectId}`);
   },
 
   getMessages: async (orgId: string, channelId: string = "C01ABCDEF01"): Promise<{ messages: SlackMessage[] }> => {

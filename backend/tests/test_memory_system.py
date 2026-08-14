@@ -10,6 +10,7 @@ from app.models.memory import AgentMemory
 from app.memory.manager import get_memory_manager
 from app.services.memory import MemoryService
 from app.db.session import SessionLocal
+from tests._auth_helpers import create_authenticated_headers
 
 async def test_memory_system_flow():
     print("Initializing Memory System validation tests...")
@@ -91,17 +92,19 @@ async def test_memory_system_flow():
                 assert isinstance(top_hit["score"], float)
                 print(f"SUCCESS: Long-term memory search returned top hit with score={top_hit['score']:.4f}.")
 
+            auth_headers = await create_authenticated_headers(client, test_org_id)
+
             # 4. Test HTTP API Endpoint: POST /api/v1/memory
             print("\nTest 4: Requesting POST /api/v1/memory...")
             res = await client.post(
                 "/api/v1/memory",
                 json={
-                    "organization_id": str(test_org_id),
                     "memory_type": "entity",
                     "key": "dev_velocity_fact",
                     "value_json": {"avg_story_points": 18},
                     "agent_type": "tpm"
-                }
+                },
+                headers=auth_headers
             )
             assert res.status_code == 201, f"Endpoint failed: {res.text}"
             mem_json = res.json()
@@ -110,7 +113,7 @@ async def test_memory_system_flow():
 
             # 5. Test HTTP API Endpoint: GET /api/v1/memory
             print("\nTest 5: Requesting GET /api/v1/memory...")
-            res = await client.get(f"/api/v1/memory?organization_id={test_org_id}&key=dev_velocity_fact")
+            res = await client.get("/api/v1/memory?key=dev_velocity_fact", headers=auth_headers)
             assert res.status_code == 200, f"Recall failed: {res.text}"
             rec_json = res.json()
             assert rec_json["key"] == "dev_velocity_fact"
@@ -122,10 +125,10 @@ async def test_memory_system_flow():
             res = await client.post(
                 "/api/v1/memory/search",
                 json={
-                    "organization_id": str(test_org_id),
                     "query": "Outbox pattern decisions",
                     "limit": 3
-                }
+                },
+                headers=auth_headers
             )
             assert res.status_code == 200
             s_json = res.json()

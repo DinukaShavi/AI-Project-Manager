@@ -1,13 +1,44 @@
 import json
-from typing import Optional
+import uuid as uuid_lib
+from datetime import datetime
+from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.api.deps import get_db
+from app.api.deps import get_db, get_current_user
 from app.core.config import settings
+from app.models.tenant import User
 from app.services.integration import IntegrationService
 
 router = APIRouter()
+
+
+class LinkGitHubRepositoryRequest(BaseModel):
+    project_id: UUID
+    external_repo_id: str = Field(..., min_length=1, max_length=100)
+    name: str = Field(..., min_length=1, max_length=255)
+    clone_url: str = Field(..., min_length=1)
+
+
+class CalendarSyncRequest(BaseModel):
+    project_id: UUID
+    start_date: datetime
+    end_date: datetime
+
+
+class CreateCalendarEventRequest(BaseModel):
+    project_id: UUID
+    title: str = Field(..., min_length=1, max_length=255)
+    start_time: datetime
+    end_time: datetime
+    attendee_emails: Optional[List[str]] = None
+    description: str = ""
+
+
+class SlackChannelMappingRequest(BaseModel):
+    project_id: UUID
+    slack_channel_id: str = Field(..., min_length=1, max_length=50)
 
 DEFAULT_ORG_ID = UUID("00000000-0000-0000-0000-000000000001")
 
@@ -159,20 +190,19 @@ async def google_calendar_webhook(
 @router.get("/oauth/{provider}/authorize", status_code=status.HTTP_200_OK)
 async def oauth_authorize(
     provider: str,
-    organization_id: Optional[UUID] = None,
     redirect_uri: Optional[str] = "http://localhost:3000/oauth/callback",
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """Generate third-party OAuth provider authorization URL."""
+    """Generate third-party OAuth provider authorization URL for the authenticated user's organization."""
     service = IntegrationService(db)
-    org_id = organization_id or DEFAULT_ORG_ID
     try:
         url = await service.generate_oauth_authorize_url(
             provider=provider,
-            organization_id=org_id,
+            organization_id=current_user.organization_id,
             redirect_uri=redirect_uri or "http://localhost:3000/oauth/callback"
         )
-        return {"authorization_url": url, "provider": provider, "organization_id": str(org_id)}
+        return {"authorization_url": url, "provider": provider, "organization_id": str(current_user.organization_id)}
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
@@ -181,19 +211,19 @@ async def oauth_authorize(
 async def oauth_callback(
     provider: str,
     code: str,
-    organization_id: Optional[UUID] = None,
     redirect_uri: Optional[str] = "http://localhost:3000/oauth/callback",
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """Exchange OAuth authorization code for encrypted tokens and persist in database."""
+    """Exchange OAuth authorization code for encrypted tokens and persist for the authenticated user's organization."""
     service = IntegrationService(db)
-    org_id = organization_id or DEFAULT_ORG_ID
     try:
         res = await service.exchange_code_for_token(
             provider=provider,
             code=code,
-            organization_id=org_id,
-            redirect_uri=redirect_uri or "http://localhost:3000/oauth/callback"
+            organization_id=current_user.organization_id,
+            redirect_uri=redirect_uri or "http://localhost:3000/oauth/callback",
+            user_id=current_user.id
         )
         return res
     except ValueError as e:
@@ -204,29 +234,119 @@ async def oauth_callback(
 async def get_tenant_oauth_token(
     organization_id: UUID,
     provider: str,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Retrieve active decrypted tenant access token for tool invocation."""
+    if organization_id != current_user.organization_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot access another organization's OAuth tokens.")
     service = IntegrationService(db)
-    token = await service.get_valid_oauth_token(organization_id=organization_id, provider=provider)
+    try:
+        token = await service.get_valid_oauth_token(organization_id=organization_id, provider=provider)
+    except PermissionError as e:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e))
     if not token:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No active OAuth token found for provider '{provider}'.")
     return {"organization_id": str(organization_id), "provider": provider, "access_token": token}
 
 
+@router.get("/status", status_code=status.HTTP_200_OK)
+async def get_integration_statuses(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Connection Center dashboard status (implementation_roadmap.md Milestone 6). Initial
+    state for the frontend to render before any live WebSocket update arrives; org is
+    always the authenticated caller's own, never client-supplied. Never returns token
+    material -- use GET /oauth/tokens/{organization_id} for actual credential retrieval."""
+    service = IntegrationService(db)
+    statuses = await service.get_integration_statuses(current_user.organization_id)
+    return {"organization_id": str(current_user.organization_id), "integrations": statuses}
+
+
 @router.delete("/oauth/{provider}", status_code=status.HTTP_200_OK)
 async def revoke_oauth_integration(
     provider: str,
-    organization_id: Optional[UUID] = None,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """Revoke and deactivate tenant OAuth provider integration."""
+    """Revoke and deactivate the authenticated user's organization's OAuth provider integration."""
     service = IntegrationService(db)
-    org_id = organization_id or DEFAULT_ORG_ID
-    success = await service.revoke_oauth_token(organization_id=org_id, provider=provider)
+    success = await service.revoke_oauth_token(organization_id=current_user.organization_id, provider=provider, user_id=current_user.id)
     if not success:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Integration not found.")
-    return {"status": "revoked", "provider": provider, "organization_id": str(org_id)}
+    return {"status": "revoked", "provider": provider, "organization_id": str(current_user.organization_id)}
+
+
+@router.post("/github/repositories", status_code=status.HTTP_201_CREATED)
+async def link_github_repository(
+    payload: LinkGitHubRepositoryRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Link a GitHub repository to a project, per api_contract.md section 4.A. This is the
+    prerequisite the documented GitHub backup-sync cron needs to know which repositories to poll."""
+    service = IntegrationService(db)
+    try:
+        repo = await service.link_github_repository(
+            organization_id=current_user.organization_id,
+            project_id=payload.project_id,
+            external_repo_id=payload.external_repo_id,
+            name=payload.name,
+            clone_url=payload.clone_url,
+            user_id=current_user.id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    return {
+        "id": str(repo.id),
+        "project_id": str(repo.project_id),
+        "external_repo_id": repo.external_repo_id,
+        "name": repo.name,
+        "clone_url": repo.clone_url,
+        "status": "linked"
+    }
+
+
+@router.get("/github/discover-repositories", status_code=status.HTTP_200_OK)
+async def discover_github_repositories(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """List real repositories the authenticated user's organization's connected GitHub token
+    can access, for the "select GitHub repositories to link" step (api_contract.md section
+    4.A). Real GitHub API call via the stored OAuth token -- distinct from the hardcoded
+    GET /github/repositories mock below, which returns fixed sample data regardless of
+    whether GitHub is even connected."""
+    service = IntegrationService(db)
+    try:
+        repos = await service.discover_github_repositories(current_user.organization_id)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    return {"total_repositories": len(repos), "repositories": repos}
+
+
+@router.get("/github/linked-repositories", status_code=status.HTTP_200_OK)
+async def list_linked_github_repositories(
+    project_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """List repositories already linked to a project via POST /github/repositories. Real,
+    project-scoped, tenant-isolated -- reads the actual `repositories` table."""
+    service = IntegrationService(db)
+    try:
+        repos = await service.list_linked_repositories(current_user.organization_id, project_id)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    return {
+        "project_id": str(project_id),
+        "total_repositories": len(repos),
+        "repositories": [
+            {"id": str(r.id), "external_repo_id": r.external_repo_id, "name": r.name, "clone_url": r.clone_url}
+            for r in repos
+        ],
+    }
 
 
 @router.get("/github/repositories", status_code=status.HTTP_200_OK)
@@ -488,19 +608,24 @@ async def get_github_issues(
 
 @router.get("/jira/projects", status_code=status.HTTP_200_OK)
 async def get_jira_projects(
-    organization_id: Optional[UUID] = None,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """Retrieve connected Jira software projects."""
-    org_id = organization_id or DEFAULT_ORG_ID
-    return {
-        "organization_id": str(org_id),
-        "total_projects": 2,
-        "projects": [
-            {"id": "10001", "key": "TPM", "name": "Technical Project Manager", "project_type": "software", "lead": "Dinuka Shavi", "total_issues": 18},
-            {"id": "10002", "key": "INFRA", "name": "Cloud Infrastructure", "project_type": "business", "lead": "DevOps Lead", "total_issues": 10}
-        ]
-    }
+    """Import Jira Projects List, per api_contract.md section 5.A. Requires
+    authentication (unlike the previous unauthenticated mock) since it now calls the real
+    Jira REST API using this deployment's configured credentials."""
+    import httpx
+
+    service = IntegrationService(db)
+    try:
+        projects = await service.get_jira_projects()
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Jira API returned an error ({e.response.status_code}).")
+    except httpx.RequestError:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Jira API is currently unreachable. Please try again shortly.")
+    return {"projects": projects}
 
 
 @router.get("/jira/issues", status_code=status.HTTP_200_OK)
@@ -580,6 +705,71 @@ async def get_jira_velocity(
 # ============================================================================
 # SLACK PLATFORM INTEGRATION MODULE ENDPOINTS
 # ============================================================================
+
+@router.post("/slack/mappings", status_code=status.HTTP_200_OK)
+async def map_slack_channel(
+    payload: SlackChannelMappingRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Map Project to Slack Channel, per api_contract.md section 6.A. Lets incoming Slack
+    webhook messages be auto-routed to the correct project by channel."""
+    service = IntegrationService(db)
+    try:
+        mapping = await service.map_slack_channel_to_project(
+            organization_id=current_user.organization_id,
+            project_id=payload.project_id,
+            slack_channel_id=payload.slack_channel_id,
+            user_id=current_user.id,
+        )
+    except LookupError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+    return {
+        "id": str(mapping.id),
+        "project_id": str(mapping.project_id),
+        "slack_channel_id": mapping.slack_channel_id,
+        "status": "mapped"
+    }
+
+
+@router.get("/slack/discover-channels", status_code=status.HTTP_200_OK)
+async def discover_slack_channels(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """List real channels the authenticated user's organization's connected Slack bot token
+    can see, for the "select Slack channels to map" step (api_contract.md section 6.A). Real
+    Slack API call via the stored OAuth token -- distinct from the hardcoded GET /slack/channels
+    mock below, which returns fixed sample data regardless of whether Slack is even connected."""
+    service = IntegrationService(db)
+    try:
+        channels = await service.discover_slack_channels(current_user.organization_id)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    return {"total_channels": len(channels), "channels": channels}
+
+
+@router.get("/slack/mapped-channels", status_code=status.HTTP_200_OK)
+async def list_mapped_slack_channels(
+    project_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """List Slack channels already mapped to a project via POST /slack/mappings. Real,
+    project-scoped, tenant-isolated -- reads the actual `slack_channel_mappings` table."""
+    service = IntegrationService(db)
+    try:
+        mappings = await service.list_mapped_channels(current_user.organization_id, project_id)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    return {
+        "project_id": str(project_id),
+        "total_channels": len(mappings),
+        "channels": [{"id": str(m.id), "slack_channel_id": m.slack_channel_id} for m in mappings],
+    }
+
 
 @router.get("/slack/channels", status_code=status.HTTP_200_OK)
 async def get_slack_channels(
@@ -664,6 +854,113 @@ async def get_slack_activity_analysis(
 # ============================================================================
 # GOOGLE CALENDAR PLATFORM INTEGRATION MODULE ENDPOINTS
 # ============================================================================
+
+@router.post("/calendar/sync", status_code=status.HTTP_202_ACCEPTED)
+async def sync_calendar_events(
+    payload: CalendarSyncRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Sync Calendar Events Range, per api_contract.md section 7.A. Calendar is documented as
+    polling-driven (no webhook-driven real-time path), so this is the primary way real Google
+    Calendar event data ever enters the system. Runs synchronously within the request (this
+    codebase has no Celery/task-queue system to hand off to) but returns a sync task token per
+    the documented 202 Accepted response shape."""
+    service = IntegrationService(db)
+    try:
+        result = await service.sync_calendar_events(
+            organization_id=current_user.organization_id,
+            project_id=payload.project_id,
+            start_date=payload.start_date,
+            end_date=payload.end_date,
+        )
+    except LookupError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except PermissionError as e:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    return {
+        "sync_task_id": str(uuid_lib.uuid4()),
+        "status": "completed",
+        "project_id": str(payload.project_id),
+        "events_synced": result["events_synced"],
+        "events_found": result["events_found"],
+    }
+
+
+@router.post("/calendar/meetings", status_code=status.HTTP_201_CREATED)
+async def create_calendar_meeting(
+    payload: CreateCalendarEventRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Schedule a real Google Calendar event -- the write side POST /calendar/sync never had.
+    Uses the org's existing calendar.events OAuth grant (already covers write, no new consent
+    needed). The created Meeting appears immediately in GET /calendar/meetings, not just after
+    the next poll."""
+    service = IntegrationService(db)
+    try:
+        meeting = await service.create_calendar_event(
+            organization_id=current_user.organization_id,
+            project_id=payload.project_id,
+            title=payload.title,
+            start_time=payload.start_time,
+            end_time=payload.end_time,
+            attendee_emails=payload.attendee_emails,
+            description=payload.description,
+            user_id=current_user.id,
+        )
+    except LookupError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except PermissionError as e:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    return {
+        "id": str(meeting.id),
+        "external_event_id": meeting.external_event_id,
+        "title": meeting.title,
+        "start_time": meeting.start_time.isoformat(),
+        "end_time": meeting.end_time.isoformat(),
+        "attendees": meeting.attendees,
+    }
+
+
+@router.get("/calendar/meetings", status_code=status.HTTP_200_OK)
+async def list_calendar_meetings(
+    project_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """List Synced Calendar Meetings for a project (database_schema_design.md section 19,
+    ui_ux_design.md section 10 Calendar page). Reads the real Meeting rows written by
+    POST /calendar/sync -- distinct from the hardcoded, unauthenticated GET /google/meetings
+    mock below, which returns fixed sample data regardless of tenant or actual sync state."""
+    service = IntegrationService(db)
+    try:
+        meetings = await service.list_meetings(
+            organization_id=current_user.organization_id,
+            project_id=project_id,
+        )
+    except LookupError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    return {
+        "project_id": str(project_id),
+        "total_meetings": len(meetings),
+        "meetings": [
+            {
+                "id": str(m.id),
+                "external_event_id": m.external_event_id,
+                "title": m.title,
+                "start_time": m.start_time.isoformat(),
+                "end_time": m.end_time.isoformat(),
+                "attendees": m.attendees,
+            }
+            for m in meetings
+        ],
+    }
+
 
 @router.get("/google/events", status_code=status.HTTP_200_OK)
 async def get_google_events(

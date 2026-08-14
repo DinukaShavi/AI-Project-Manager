@@ -9,6 +9,14 @@ class Integration(Base):
     organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
     provider = Column(String(50), nullable=False) # 'github', 'jira', 'slack', 'google_calendar'
     is_active = Column(Boolean, default=True)
+    last_synced_at = Column(DateTime(timezone=True), nullable=True)
+    # Which external site/team/org this connection actually points to -- e.g. Slack team id
+    # ("T0123...") + name, Jira site id + name, GitHub org id + login. Populated automatically
+    # when the OAuth provider's response makes this trustworthily available (see
+    # IntegrationService._extract_identity_from_token_response); left null otherwise rather
+    # than guessed.
+    external_workspace_id = Column(String(255), nullable=True)
+    external_workspace_name = Column(String(255), nullable=True)
 
     # Relationships
     organization = relationship("Organization", back_populates="integrations")

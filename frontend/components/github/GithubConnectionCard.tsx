@@ -1,8 +1,11 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { githubApi } from "../../api/github.api";
-import { Github, CheckCircle2, ShieldCheck, RefreshCw, Unlink } from "lucide-react";
+import { integrationStatusApi } from "../../api/integrationStatus.api";
+import { useIntegrationStatusSocket } from "../../hooks/useIntegrationStatusSocket";
+import { IntegrationConnectionStatus } from "../../types/integrationStatus";
+import { Github, CheckCircle2, ShieldCheck, RefreshCw, Unlink, AlertTriangle } from "lucide-react";
 
 interface Props {
   orgId: string;
@@ -10,11 +13,47 @@ interface Props {
 }
 
 export default function GithubConnectionCard({ orgId, onRefreshAll }: Props) {
-  const [isConnected, setIsConnected] = useState(true);
-  const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState<IntegrationConnectionStatus>("disconnected");
+  const [statusLoading, setStatusLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState(false);
+
+  // Live connection-status updates over the authenticated WebSocket
+  // (implementation_roadmap.md Milestone 6: "connection dashboard updates in real-time").
+  const { statusUpdates, socketState } = useIntegrationStatusSocket();
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await integrationStatusApi.getStatuses();
+        const github = res.integrations.find((i) => i.provider === "github");
+        if (!cancelled && github) {
+          setStatus(github.status);
+        }
+      } catch (err) {
+        console.error("Failed to load integration status:", err);
+      } finally {
+        if (!cancelled) setStatusLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // A live update for GitHub always supersedes the initially-fetched status.
+  useEffect(() => {
+    const liveUpdate = statusUpdates["github"];
+    if (liveUpdate) {
+      setStatus(liveUpdate.status);
+    }
+  }, [statusUpdates]);
+
+  const isConnected = status === "connected";
+  const needsReauth = status === "reauth_required";
 
   const handleConnect = async () => {
-    setLoading(true);
+    setActionLoading(true);
     try {
       const res = await githubApi.getAuthorizeUrl(orgId);
       if (res.authorization_url) {
@@ -23,19 +62,19 @@ export default function GithubConnectionCard({ orgId, onRefreshAll }: Props) {
     } catch (err) {
       console.error("OAuth error:", err);
     } finally {
-      setLoading(false);
+      setActionLoading(false);
     }
   };
 
   const handleDisconnect = async () => {
-    setLoading(true);
+    setActionLoading(true);
     try {
       await githubApi.revokeConnection(orgId);
-      setIsConnected(false);
+      setStatus("disconnected");
     } catch (err) {
       console.error("Revoke error:", err);
     } finally {
-      setLoading(false);
+      setActionLoading(false);
     }
   };
 
@@ -48,15 +87,27 @@ export default function GithubConnectionCard({ orgId, onRefreshAll }: Props) {
         <div>
           <div className="flex items-center gap-2">
             <h2 className="text-xl font-bold text-white">GitHub Integration Portal</h2>
-            {isConnected ? (
+            {statusLoading ? (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-700/30 text-slate-400 border border-slate-600/30">
+                Loading...
+              </span>
+            ) : isConnected ? (
               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                 <CheckCircle2 className="w-3.5 h-3.5" /> Connected
+              </span>
+            ) : needsReauth ? (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                <AlertTriangle className="w-3.5 h-3.5" /> Needs Reauthorization
               </span>
             ) : (
               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20">
                 Disconnected
               </span>
             )}
+            <span
+              title={`Live updates: ${socketState}`}
+              className={`w-2 h-2 rounded-full ${socketState === "open" ? "bg-emerald-400" : "bg-slate-600"}`}
+            />
           </div>
           <p className="text-sm text-slate-400 mt-1">
             Real-time webhook sync for PRs, Commits, and Issues with HMAC SHA-256 validation.
@@ -77,7 +128,7 @@ export default function GithubConnectionCard({ orgId, onRefreshAll }: Props) {
         {isConnected ? (
           <button
             onClick={handleDisconnect}
-            disabled={loading}
+            disabled={actionLoading}
             className="flex-1 md:flex-none px-4 py-2.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-sm font-medium border border-rose-500/20 transition-all flex items-center justify-center gap-2"
           >
             <Unlink className="w-4 h-4" /> Disconnect
@@ -85,10 +136,10 @@ export default function GithubConnectionCard({ orgId, onRefreshAll }: Props) {
         ) : (
           <button
             onClick={handleConnect}
-            disabled={loading}
+            disabled={actionLoading}
             className="flex-1 md:flex-none px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-sm font-medium shadow-lg shadow-purple-500/20 transition-all flex items-center justify-center gap-2"
           >
-            <ShieldCheck className="w-4 h-4" /> Connect GitHub
+            <ShieldCheck className="w-4 h-4" /> {needsReauth ? "Reconnect GitHub" : "Connect GitHub"}
           </button>
         )}
       </div>

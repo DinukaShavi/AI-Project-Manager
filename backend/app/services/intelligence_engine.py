@@ -9,6 +9,7 @@ from app.tools.executor import ToolExecutor
 from app.agents.reflection import ReflectionEngine, ReflectionResult
 from app.analytics.predictor import MonteCarloPredictor, PredictiveAnalyticsEngine
 from app.analytics.recommendation import RecommendationEngine
+from app.services.recommendation import RecommendationService
 
 
 class ProjectIntelligenceEngine:
@@ -115,6 +116,18 @@ class ProjectIntelligenceEngine:
             graph_state=self.graph,
             monte_carlo_results=mc_results
         )
+
+        # Persist to the Recommendation Log (detailed_component_architecture.md section 7)
+        # so GET /api/v1/recommendations (api_contract.md 12.A) can serve them. Only
+        # possible when both a DB session and a real project_id are available -- project_id
+        # is a required (non-nullable) FK on the recommendations table, and a goal processed
+        # without a project context has nothing to attach persisted recommendations to.
+        if self.db and project_id:
+            await RecommendationService(self.db).persist_recommendations(
+                organization_id=uuid.UUID(str(organization_id)),
+                project_id=uuid.UUID(str(project_id)),
+                recommendations=recommendations
+            )
 
         return {
             "run_id": run_id,

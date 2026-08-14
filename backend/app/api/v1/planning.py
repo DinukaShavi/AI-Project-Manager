@@ -3,19 +3,18 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.api.deps import get_db
+from app.api.deps import get_db, get_current_user
+from app.models.tenant import User
 from app.services.planning import PlanningService
 
 router = APIRouter()
 
 class PlanGenerateRequest(BaseModel):
-    organization_id: UUID
     goal: str = Field(..., description="High-level project goal or milestone description")
     project_id: Optional[UUID] = None
     context: Optional[Dict[str, Any]] = None
 
 class PlanExecuteRequest(BaseModel):
-    organization_id: Optional[UUID] = None
     goal: Optional[str] = Field(None, description="Goal to plan and execute")
     plan_id: Optional[UUID] = Field(None, description="Existing plan ID to execute")
     project_id: Optional[UUID] = None
@@ -24,13 +23,14 @@ class PlanExecuteRequest(BaseModel):
 @router.post("/plan", status_code=status.HTTP_201_CREATED)
 async def generate_plan(
     payload: PlanGenerateRequest,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Decompose high-level goal into HTN plan steps without immediate execution."""
     service = PlanningService(db)
     plan = await service.generate_plan(
         goal=payload.goal,
-        organization_id=payload.organization_id,
+        organization_id=current_user.organization_id,
         project_id=payload.project_id,
         context=payload.context
     )
@@ -45,7 +45,8 @@ async def generate_plan(
 @router.post("/execute", status_code=status.HTTP_200_OK)
 async def execute_plan(
     payload: PlanExecuteRequest,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Decompose a high-level goal into an HTN plan and immediately execute its WorkflowDAG."""
     service = PlanningService(db)
@@ -53,7 +54,7 @@ async def execute_plan(
         plan, execution = await service.execute_plan(
             plan_id=payload.plan_id,
             goal=payload.goal,
-            organization_id=payload.organization_id,
+            organization_id=current_user.organization_id,
             project_id=payload.project_id,
             context=payload.context
         )
@@ -71,11 +72,12 @@ async def execute_plan(
 @router.get("/plans/{plan_id}", status_code=status.HTTP_200_OK)
 async def get_plan(
     plan_id: UUID,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Retrieve HTN plan details by ID."""
     service = PlanningService(db)
-    plan = await service.get_plan(plan_id)
+    plan = await service.get_plan(plan_id, current_user.organization_id)
     if not plan:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Plan not found")
     return {
@@ -87,7 +89,6 @@ async def get_plan(
 
 
 class IntelligenceGoalRequest(BaseModel):
-    organization_id: UUID
     goal: str = Field(..., description="Project management goal or milestone")
     project_id: Optional[UUID] = None
     user_role: Optional[str] = "Developer"
@@ -98,14 +99,15 @@ class IntelligenceGoalRequest(BaseModel):
 @router.post("/intelligence", status_code=status.HTTP_200_OK)
 async def process_project_intelligence(
     payload: IntelligenceGoalRequest,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Execute unified Project Intelligence Engine pipeline (Knowledge Graph, HTN, Tool Approvals, Reflection, Monte Carlo)."""
     from app.services.intelligence_engine import ProjectIntelligenceEngine
     engine = ProjectIntelligenceEngine(db)
     result = await engine.process_goal(
         goal=payload.goal,
-        organization_id=str(payload.organization_id),
+        organization_id=str(current_user.organization_id),
         project_id=str(payload.project_id) if payload.project_id else None,
         user_role=payload.user_role or "Developer",
         approval_token=payload.approval_token,

@@ -10,7 +10,7 @@ export const costsApi = {
     return httpClient<CostAlertResponse>(`/costs/alerts/${orgId}`);
   },
 
-  recordUsage: async (payload: { organization_id: string; model_name: string; prompt_tokens: number; completion_tokens: number; cache_hit_tokens?: number }): Promise<any> => {
+  recordUsage: async (payload: { agent_name: string; model: string; prompt_tokens: number; completion_tokens: number; cache_hit_tokens?: number }): Promise<any> => {
     return httpClient<any>("/costs/record", {
       method: "POST",
       body: JSON.stringify(payload),

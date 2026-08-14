@@ -1,6 +1,6 @@
 from datetime import datetime
-from pydantic import BaseModel, EmailStr, ConfigDict
-from typing import Optional
+from pydantic import BaseModel, EmailStr, ConfigDict, field_validator
+from typing import Any, List, Optional
 from uuid import UUID
 
 class UserBase(BaseModel):
@@ -23,6 +23,15 @@ class UserRead(UserBase):
     organization_id: UUID
     created_at: datetime
     updated_at: datetime
+    roles: List[str] = []
+
+    @field_validator("roles", mode="before")
+    @classmethod
+    def _role_names(cls, v: Any) -> List[str]:
+        """Accept either ORM Role objects (from a User.roles relationship) or plain strings."""
+        if v and hasattr(next(iter(v), None), "name"):
+            return [r.name for r in v]
+        return v or []
 
     # Pydantic v2 ORM mapping configuration
     model_config = ConfigDict(from_attributes=True)

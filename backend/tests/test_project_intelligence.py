@@ -1,6 +1,8 @@
 import asyncio
 import uuid
 from httpx import AsyncClient, ASGITransport
+from sqlalchemy import select
+import app.db.base # Register models
 from app.main import app
 from app.context.graph import ProjectKnowledgeGraph, EntityNode
 from app.planning.planner import HTNPlanner
@@ -8,6 +10,9 @@ from app.tools.executor import ToolExecutor
 from app.agents.reflection import ReflectionEngine
 from app.analytics.predictor import MonteCarloPredictor
 from app.services.intelligence_engine import ProjectIntelligenceEngine
+from app.models.tenant import Organization
+from app.db.session import SessionLocal
+from tests._auth_helpers import create_authenticated_headers
 
 async def test_knowledge_graph_operations():
     print("Test 1: Testing Knowledge Graph entity & edge traversal...")
@@ -107,17 +112,35 @@ async def test_intelligence_engine_end_to_end():
 async def test_intelligence_http_endpoint():
     print("Test 7: Requesting POST /api/v1/planning/intelligence...")
     transport = ASGITransport(app=app)
+    test_org_id = None
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        payload = {
-            "organization_id": str(uuid.uuid4()),
-            "goal": "Audit microservices architecture compliance",
-            "user_role": "Developer"
-        }
-        res = await client.post("/api/v1/planning/intelligence", json=payload)
-        assert res.status_code == 200
-        data = res.json()
-        assert "run_id" in data
-        assert len(data["recommendations"]) > 0
+        try:
+            async with SessionLocal() as session:
+                org = Organization(name=f"Intelligence Test Org {uuid.uuid4().hex[:6]}", domain=f"intel-{uuid.uuid4().hex[:6]}.com")
+                session.add(org)
+                await session.flush()
+                test_org_id = org.id
+                await session.commit()
+
+            auth_headers = await create_authenticated_headers(client, test_org_id)
+
+            payload = {
+                "goal": "Audit microservices architecture compliance",
+                "user_role": "Developer"
+            }
+            res = await client.post("/api/v1/planning/intelligence", json=payload, headers=auth_headers)
+            assert res.status_code == 200
+            data = res.json()
+            assert "run_id" in data
+            assert len(data["recommendations"]) > 0
+        finally:
+            if test_org_id:
+                async with SessionLocal() as session:
+                    res_org = await session.execute(select(Organization).where(Organization.id == test_org_id))
+                    db_org = res_org.scalar_one_or_none()
+                    if db_org:
+                        await session.delete(db_org)
+                    await session.commit()
     print("SUCCESS: HTTP intelligence endpoint verified.")
 
 async def test_project_intelligence_flow():

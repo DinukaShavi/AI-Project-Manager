@@ -61,13 +61,46 @@ class SlackConnector(BaseConnector):
         """Fetch remote data using Slack Web API."""
         if not self.bot_token:
             raise ValueError("Slack bot_token is required for API calls.")
-            
+
         headers = {
             "Authorization": f"Bearer {self.bot_token}",
             "Content-Type": "application/json; charset=utf-8"
         }
-        
+
         async with httpx.AsyncClient() as client:
             response = await client.get(f"{self.base_url}/{endpoint.lstrip('/')}", headers=headers, params=params)
             response.raise_for_status()
             return response.json()
+
+    async def list_channels(self) -> list:
+        """List real channels the connected bot token can see via GET conversations.list,
+        for the "select Slack channels to map" step (api_contract.md section 6.A)."""
+        data = await self.fetch_data(
+            "conversations.list",
+            params={"types": "public_channel,private_channel", "limit": 200, "exclude_archived": "true"},
+        )
+        if not data.get("ok"):
+            raise ValueError(f"Slack API error: {data.get('error', 'unknown_error')}")
+        return data.get("channels", [])
+
+    async def post_message(self, channel: str, text: str) -> Dict[str, Any]:
+        """Post a real message via POST chat.postMessage. Slack returns HTTP 200 even for
+        application-level errors, signaled via the 'ok' field."""
+        if not self.bot_token:
+            raise ValueError("Slack bot_token is required to post a message.")
+
+        headers = {
+            "Authorization": f"Bearer {self.bot_token}",
+            "Content-Type": "application/json; charset=utf-8"
+        }
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{self.base_url}/chat.postMessage",
+                headers=headers,
+                json={"channel": channel, "text": text}
+            )
+            response.raise_for_status()
+            data = response.json()
+            if not data.get("ok"):
+                raise ValueError(f"Slack API error: {data.get('error', 'unknown_error')}")
+            return data

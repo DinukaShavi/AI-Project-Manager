@@ -1,12 +1,8 @@
 // TypeScript Models for Jira Integration
 
 export interface JiraProject {
-  id: string;
   key: string;
   name: string;
-  project_type: string;
-  lead: string;
-  total_issues: number;
 }
 
 export interface JiraIssue {

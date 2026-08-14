@@ -19,7 +19,7 @@ async def check_rate_limit(payload: ConsumeTokenRequest, response: Response):
     except ValueError:
         dim_enum = RateLimitDimension.USER
 
-    allowed, meta = limiter.consume(dim_enum, payload.identifier, payload.tokens_needed)
+    allowed, meta = await limiter.consume(dim_enum, payload.identifier, payload.tokens_needed)
     
     response.headers["X-RateLimit-Limit"] = str(meta["limit"])
     response.headers["X-RateLimit-Remaining"] = str(meta["remaining"])
@@ -43,5 +43,5 @@ async def get_bucket_status(dimension: str, identifier: str):
     except ValueError:
         dim_enum = RateLimitDimension.USER
 
-    _, meta = limiter.consume(dim_enum, identifier, tokens_needed=0.0)
+    _, meta = await limiter.consume(dim_enum, identifier, tokens_needed=0.0)
     return meta

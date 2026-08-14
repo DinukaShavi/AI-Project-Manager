@@ -10,6 +10,11 @@ class UserRole(str, Enum):
     DEVELOPER = "Developer"
     VIEWER = "Viewer"
 
+# Roles permitted to perform organization-wide administrative actions (viewing the audit
+# log, granting/revoking roles). Shared constant so every admin-gated endpoint enforces the
+# same boundary instead of each router redefining its own set.
+ADMIN_ROLES: Set[str] = {UserRole.SUPER_ADMIN.value, UserRole.ORG_ADMIN.value}
+
 class RiskLevel(str, Enum):
     LOW = "LOW"
     MEDIUM = "MEDIUM"

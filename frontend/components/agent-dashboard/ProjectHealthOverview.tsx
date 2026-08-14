@@ -1,16 +1,17 @@
 "use client";
 
 import React from "react";
-import { ShieldCheck, AlertTriangle, CheckCircle2, TrendingUp, Activity, Layers } from "lucide-react";
+import { ShieldCheck, AlertTriangle, CheckCircle2, Activity } from "lucide-react";
+import { SprintAnalytics } from "../../api";
 
 interface Props {
-  analytics: any;
+  analytics: SprintAnalytics;
 }
 
 export default function ProjectHealthOverview({ analytics }: Props) {
-  const completionPct = analytics?.completion_rate_percentage || 61.8;
-  const riskIndex = analytics?.delivery_risk_index || 0.15;
-  const riskLevel = analytics?.risk_level || "low";
+  const completionPct = analytics.completion_rate_percentage;
+  const riskIndex = analytics.delivery_risk_index;
+  const riskLevel = analytics.risk_level;
 
   return (
     <div className="p-6 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-xl space-y-6 shadow-2xl">
@@ -21,7 +22,7 @@ export default function ProjectHealthOverview({ analytics }: Props) {
           </div>
           <div>
             <h2 className="text-xl font-bold text-white">Project Health Overview</h2>
-            <p className="text-xs text-slate-400">Synthesized real-time telemetry across Jira, GitHub & Slack</p>
+            <p className="text-xs text-slate-400">Real-time sprint delivery metrics for the selected project</p>
           </div>
         </div>
 
@@ -50,15 +51,15 @@ export default function ProjectHealthOverview({ analytics }: Props) {
 
         <div className="p-4 rounded-xl bg-white/5 border border-white/5 space-y-1">
           <span className="text-xs text-slate-400">Sprint Story Points</span>
-          <p className="text-2xl font-extrabold text-white">{analytics?.completed_story_points || 21} <span className="text-xs font-normal text-slate-400">/ {analytics?.total_story_points || 34}</span></p>
+          <p className="text-2xl font-extrabold text-white">{analytics.completed_story_points} <span className="text-xs font-normal text-slate-400">/ {analytics.total_story_points}</span></p>
           <div className="w-full bg-slate-900 rounded-full h-1.5 mt-2">
-            <div className="bg-purple-500 h-1.5 rounded-full" style={{ width: `${completionPct}%` }} />
+            <div className="bg-purple-500 h-1.5 rounded-full" style={{ width: `${Math.min(100, completionPct)}%` }} />
           </div>
         </div>
 
         <div className="p-4 rounded-xl bg-white/5 border border-white/5 space-y-1">
           <span className="text-xs text-slate-400">Sprint Task Status</span>
-          <p className="text-2xl font-extrabold text-white">{analytics?.completed_tasks || 5} <span className="text-xs font-normal text-slate-400">Done ({analytics?.in_progress_tasks || 2} Active)</span></p>
+          <p className="text-2xl font-extrabold text-white">{analytics.completed_tasks} <span className="text-xs font-normal text-slate-400">Done ({analytics.in_progress_tasks} Active)</span></p>
           <p className="text-[11px] text-emerald-400 flex items-center gap-1 mt-1">
             <CheckCircle2 className="w-3 h-3" /> {completionPct.toFixed(1)}% Completed
           </p>
@@ -66,8 +67,10 @@ export default function ProjectHealthOverview({ analytics }: Props) {
 
         <div className="p-4 rounded-xl bg-white/5 border border-white/5 space-y-1">
           <span className="text-xs text-slate-400">Active Blockers</span>
-          <p className="text-2xl font-extrabold text-amber-400">1 <span className="text-xs font-normal text-slate-400">External Dependency</span></p>
-          <p className="text-[11px] text-amber-300 mt-1">TPM-105 Slack HMAC HMAC verify</p>
+          <p className="text-2xl font-extrabold text-amber-400">
+            {analytics.high_risk_open_tasks} <span className="text-xs font-normal text-slate-400">High-Priority Open</span>
+          </p>
+          <p className="text-[11px] text-slate-400 mt-1">{analytics.todo_tasks} tasks still in backlog</p>
         </div>
       </div>
     </div>

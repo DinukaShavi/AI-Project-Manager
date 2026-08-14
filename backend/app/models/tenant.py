@@ -1,6 +1,6 @@
 from sqlalchemy import Column, String, ForeignKey, Table, Text
 from sqlalchemy.orm import relationship
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, ARRAY
 from app.db.base_class import Base, SoftDeleteMixin
 
 # Many-to-Many Association Tables
@@ -23,6 +23,7 @@ class Organization(Base, SoftDeleteMixin):
 
     name = Column(String(255), nullable=False)
     domain = Column(String(255), unique=True, nullable=True)
+    allowed_email_domains = Column(ARRAY(String), nullable=False, server_default="{}")
 
     # Relationships
     workspaces = relationship("Workspace", back_populates="organization", cascade="all, delete-orphan")

@@ -4,8 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.api.deps import get_db
-from app.models.project import ProjectTask
+from app.api.deps import get_db, get_current_user
+from app.models.project import Project, ProjectTask
+from app.models.tenant import User
 
 router = APIRouter()
 
@@ -30,10 +31,18 @@ class TaskUpdateRequest(BaseModel):
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_task(
     payload: TaskCreateRequest,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """Create a project task/issue."""
+    """Create a project task/issue in a project owned by the authenticated user's organization."""
+    proj_res = await db.execute(
+        select(Project).where(Project.id == payload.project_id, Project.organization_id == current_user.organization_id, Project.deleted_at == None)
+    )
+    if not proj_res.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found in this organization.")
+
     task = ProjectTask(
+        organization_id=current_user.organization_id,
         project_id=payload.project_id,
         title=payload.title,
         description=payload.description,
@@ -60,10 +69,21 @@ async def create_task(
 async def list_tasks(
     project_id: UUID,
     status_filter: Optional[str] = None,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """List all tasks in a project."""
-    query = select(ProjectTask).where(ProjectTask.project_id == project_id, ProjectTask.deleted_at == None)
+    """List all tasks in a project owned by the authenticated user's organization."""
+    proj_res = await db.execute(
+        select(Project).where(Project.id == project_id, Project.organization_id == current_user.organization_id, Project.deleted_at == None)
+    )
+    if not proj_res.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found in this organization.")
+
+    query = select(ProjectTask).where(
+        ProjectTask.project_id == project_id,
+        ProjectTask.organization_id == current_user.organization_id,
+        ProjectTask.deleted_at == None,
+    )
     if status_filter:
         query = query.where(ProjectTask.status == status_filter)
 
@@ -90,10 +110,18 @@ async def list_tasks(
 async def update_task(
     task_id: UUID,
     payload: TaskUpdateRequest,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """Update task attributes (status, assignee, priority, points)."""
-    res = await db.execute(select(ProjectTask).where(ProjectTask.id == task_id, ProjectTask.deleted_at == None))
+    """Update task attributes (status, assignee, priority, points), scoped to the
+    authenticated user's organization."""
+    res = await db.execute(
+        select(ProjectTask).where(
+            ProjectTask.id == task_id,
+            ProjectTask.organization_id == current_user.organization_id,
+            ProjectTask.deleted_at == None,
+        )
+    )
     task = res.scalar_one_or_none()
     if not task:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")

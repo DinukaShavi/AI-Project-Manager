@@ -37,3 +37,40 @@ export interface SlackActivityAnalysis {
   top_discussed_topics: string[];
   activity_by_hour: SlackActivityByHour[];
 }
+
+export interface SlackChannelMappingRequest {
+  project_id: string;
+  slack_channel_id: string;
+}
+
+export interface SlackChannelMappingResponse {
+  id: string;
+  project_id: string;
+  slack_channel_id: string;
+  status: string;
+}
+
+// Real channel discovery/mapping (distinct from the mock SlackChannel shape above)
+export interface DiscoveredSlackChannel {
+  slack_channel_id: string;
+  name: string;
+  is_private: boolean;
+  num_members: number;
+  topic: string;
+}
+
+export interface DiscoverSlackChannelsResponse {
+  total_channels: number;
+  channels: DiscoveredSlackChannel[];
+}
+
+export interface MappedSlackChannel {
+  id: string;
+  slack_channel_id: string;
+}
+
+export interface MappedSlackChannelsResponse {
+  project_id: string;
+  total_channels: number;
+  channels: MappedSlackChannel[];
+}

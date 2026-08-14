@@ -3,10 +3,20 @@ from typing import Any, Dict, Optional
 import httpx
 from app.core.config import settings
 from app.core.circuit_breaker import get_circuit_breaker
+from app.core.model_router import get_model_router
 
-# HuggingFace OpenAI-compatible Router API Endpoint
-HF_ROUTER_URL = "https://router.huggingface.co/v1/chat/completions"
-DEFAULT_HF_MODEL = "Qwen/Qwen2.5-Coder-32B-Instruct"
+ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages"
+ANTHROPIC_API_VERSION = "2023-06-01"
+OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions"
+
+# ROUTING_MATRIX (app.core.model_router) names models by short id ("claude-3-5-sonnet",
+# "gpt-4o"); map to the real API-facing model identifiers each provider expects.
+ANTHROPIC_MODEL_IDS = {
+    "claude-3-5-sonnet": "claude-3-5-sonnet-20241022",
+}
+OPENAI_MODEL_IDS = {
+    "gpt-4o": "gpt-4o",
+}
 
 
 from app.agents.prompt_manager import get_prompt_manager, PromptContextItem
@@ -39,48 +49,110 @@ class BaseAgent(ABC):
             context_items=ctx_items
         )
 
-    async def _llm_call(self, prompt: str, system_prompt: str) -> str:
-        """
-        Execute LLM call using HuggingFace Router API wrapped with Circuit Breaker & Exponential Backoff.
-        Falls back to rich synthetic reasoning if no HF token is configured or API circuit is OPEN.
-        """
-        hf_token = getattr(settings, "HUGGINGFACE_API_TOKEN", None)
-        hf_model = getattr(settings, "HUGGINGFACE_MODEL", DEFAULT_HF_MODEL)
+    @staticmethod
+    def _is_configured(key: Optional[str]) -> bool:
+        return bool(key and key.strip() and not key.startswith("your_") and not key.startswith("sk-your"))
 
-        async def fallback_supplier():
-            return self._generate_synthetic_response(prompt, system_prompt)
-
-        if not (hf_token and hf_token.strip() and not hf_token.startswith("hf_your")):
-            return await fallback_supplier()
-
+    async def _call_anthropic(self, model_name: str, prompt: str, system_prompt: str) -> str:
+        """Real call to Anthropic's Messages API."""
+        if not self._is_configured(settings.ANTHROPIC_API_KEY):
+            raise RuntimeError("ANTHROPIC_API_KEY is not configured.")
+        model_id = ANTHROPIC_MODEL_IDS.get(model_name, model_name)
         headers = {
-            "Authorization": f"Bearer {hf_token}",
+            "x-api-key": settings.ANTHROPIC_API_KEY,
+            "anthropic-version": ANTHROPIC_API_VERSION,
+            "content-type": "application/json",
+        }
+        payload = {
+            "model": model_id,
+            "max_tokens": 800,
+            "system": system_prompt,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            res = await client.post(ANTHROPIC_MESSAGES_URL, headers=headers, json=payload)
+            res.raise_for_status()
+            data = res.json()
+            content_blocks = data.get("content", [])
+            text = "".join(b.get("text", "") for b in content_blocks if b.get("type") == "text")
+            if not text:
+                raise RuntimeError(f"Anthropic response contained no text content: {data}")
+            return text
+
+    async def _call_openai(self, model_name: str, prompt: str, system_prompt: str) -> str:
+        """Real call to OpenAI's Chat Completions API."""
+        if not self._is_configured(settings.OPENAI_API_KEY):
+            raise RuntimeError("OPENAI_API_KEY is not configured.")
+        model_id = OPENAI_MODEL_IDS.get(model_name, model_name)
+        headers = {
+            "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
             "Content-Type": "application/json",
         }
         payload = {
-            "model": hf_model,
+            "model": model_id,
             "messages": [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt}
+                {"role": "user", "content": prompt},
             ],
             "temperature": 0.3,
-            "max_tokens": 800
+            "max_tokens": 800,
         }
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            res = await client.post(OPENAI_CHAT_COMPLETIONS_URL, headers=headers, json=payload)
+            res.raise_for_status()
+            data = res.json()
+            choices = data.get("choices", [])
+            if not choices:
+                raise RuntimeError(f"OpenAI response contained no choices: {data}")
+            return choices[0]["message"]["content"]
 
-        async def execute_remote():
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                res = await client.post(HF_ROUTER_URL, headers=headers, json=payload)
-                res.raise_for_status()
-                data = res.json()
-                if "choices" in data and len(data["choices"]) > 0:
-                    return data["choices"][0]["message"]["content"]
-                return str(data)
+    def _provider_configured(self, model_name: str) -> bool:
+        if model_name.startswith("claude"):
+            return self._is_configured(settings.ANTHROPIC_API_KEY)
+        if model_name.startswith("gpt"):
+            return self._is_configured(settings.OPENAI_API_KEY)
+        return False
 
-        circuit_breaker = get_circuit_breaker()
-        return await circuit_breaker.call_with_circuit_breaker(
-            coro_fn=execute_remote,
-            fallback_fn=fallback_supplier
+    async def _call_provider_model(self, model_name: str, prompt: str, system_prompt: str) -> str:
+        """Dispatch a ModelRouter-selected model name to its real provider integration."""
+        if model_name.startswith("claude"):
+            return await self._call_anthropic(model_name, prompt, system_prompt)
+        elif model_name.startswith("gpt"):
+            return await self._call_openai(model_name, prompt, system_prompt)
+        raise RuntimeError(f"No provider integration is wired for model '{model_name}'.")
+
+    async def _llm_call(self, prompt: str, system_prompt: str, task_category: str = "output_reflection") -> str:
+        """
+        Execute LLM call via ModelRouter's documented primary/fallback selection (ADR 009:
+        Claude 3.5 Sonnet primary, GPT-4o fallback for reasoning tasks), each attempt wrapped
+        in its own Circuit Breaker for retry/backoff. Falls back to rich synthetic reasoning
+        only if neither provider is configured or both the primary and fallback model calls fail.
+        """
+        router = get_model_router()
+
+        async def invoke_model(model_name: str) -> str:
+            # An unconfigured API key is a permanent condition, not a transient failure —
+            # retrying it with backoff would only waste time before ModelRouter fails over
+            # to the next model anyway, so skip the circuit breaker entirely in that case.
+            if not self._provider_configured(model_name):
+                raise RuntimeError(f"No credentials configured for model '{model_name}'.")
+
+            breaker = get_circuit_breaker(name=f"llm:{model_name}")
+
+            async def attempt():
+                return await self._call_provider_model(model_name, prompt, system_prompt)
+
+            return await breaker.call_with_circuit_breaker(coro_fn=attempt)
+
+        route_result = await router.execute_with_failover(
+            task_category=task_category,
+            invoke_fn=invoke_model,
         )
+
+        if route_result["status"] in ("SUCCESS", "SUCCESS_FALLBACK"):
+            return route_result["result"]
+
+        return self._generate_synthetic_response(prompt, system_prompt)
 
     def _generate_synthetic_response(self, prompt: str, system_prompt: str) -> str:
         """
