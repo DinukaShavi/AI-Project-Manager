@@ -4,8 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.api.deps import get_db
+from app.api.deps import get_db, get_current_user
 from app.models.project import Project
+from app.models.tenant import User, Workspace
 
 router = APIRouter()
 
@@ -19,10 +20,18 @@ class ProjectCreateRequest(BaseModel):
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_project(
     payload: ProjectCreateRequest,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """Create a new project within a workspace."""
+    """Create a new project within a workspace owned by the authenticated user's organization."""
+    ws_res = await db.execute(
+        select(Workspace).where(Workspace.id == payload.workspace_id, Workspace.organization_id == current_user.organization_id)
+    )
+    if not ws_res.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found in this organization.")
+
     project = Project(
+        organization_id=current_user.organization_id,
         workspace_id=payload.workspace_id,
         name=payload.name,
         description=payload.description,
@@ -43,10 +52,23 @@ async def create_project(
 @router.get("", status_code=status.HTTP_200_OK)
 async def list_projects(
     workspace_id: UUID,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """List all active projects in a workspace."""
-    res = await db.execute(select(Project).where(Project.workspace_id == workspace_id, Project.deleted_at == None))
+    """List all active projects in a workspace owned by the authenticated user's organization."""
+    ws_res = await db.execute(
+        select(Workspace).where(Workspace.id == workspace_id, Workspace.organization_id == current_user.organization_id)
+    )
+    if not ws_res.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found in this organization.")
+
+    res = await db.execute(
+        select(Project).where(
+            Project.workspace_id == workspace_id,
+            Project.organization_id == current_user.organization_id,
+            Project.deleted_at == None,
+        )
+    )
     projects = res.scalars().all()
     return {
         "projects_count": len(projects),
@@ -65,10 +87,17 @@ async def list_projects(
 @router.get("/{project_id}", status_code=status.HTTP_200_OK)
 async def get_project(
     project_id: UUID,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """Retrieve project details by ID."""
-    res = await db.execute(select(Project).where(Project.id == project_id, Project.deleted_at == None))
+    """Retrieve project details by ID, scoped to the authenticated user's organization."""
+    res = await db.execute(
+        select(Project).where(
+            Project.id == project_id,
+            Project.organization_id == current_user.organization_id,
+            Project.deleted_at == None,
+        )
+    )
     project = res.scalar_one_or_none()
     if not project:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")

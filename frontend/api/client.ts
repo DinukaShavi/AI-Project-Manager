@@ -22,11 +22,36 @@ export class ApiError extends Error {
 /**
  * Standard Token Resolver: Retrieves JWT from localStorage or cookie storage.
  */
+const AUTH_TOKEN_KEY = "ai_tpm_jwt_token";
+const REFRESH_TOKEN_KEY = "ai_tpm_refresh_token";
+
 export function getStoredAuthToken(): string | null {
   if (typeof window !== "undefined") {
-    return localStorage.getItem("ai_tpm_jwt_token");
+    return localStorage.getItem(AUTH_TOKEN_KEY);
   }
   return null;
+}
+
+/**
+ * Persist the JWT access/refresh token pair returned by /auth/login.
+ */
+export function setStoredAuthToken(accessToken: string, refreshToken?: string): void {
+  if (typeof window !== "undefined") {
+    localStorage.setItem(AUTH_TOKEN_KEY, accessToken);
+    if (refreshToken) {
+      localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
+    }
+  }
+}
+
+/**
+ * Clear stored auth tokens (logout).
+ */
+export function clearStoredAuthToken(): void {
+  if (typeof window !== "undefined") {
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+    localStorage.removeItem(REFRESH_TOKEN_KEY);
+  }
 }
 
 /**

@@ -8,8 +8,8 @@ import {
 } from "../types/jira";
 
 export const jiraApi = {
-  getProjects: async (orgId: string): Promise<{ projects: JiraProject[] }> => {
-    return httpClient<{ projects: JiraProject[] }>(`/integrations/jira/projects?organization_id=${orgId}`);
+  getProjects: async (): Promise<{ projects: JiraProject[] }> => {
+    return httpClient<{ projects: JiraProject[] }>("/integrations/jira/projects");
   },
 
   getIssues: async (orgId: string, projectKey: string = "TPM"): Promise<{ issues: JiraIssue[] }> => {

@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import AuthGuard from "../components/AuthGuard";
+import { AuthProvider } from "../hooks/use-auth";
 
 export const metadata: Metadata = {
   title: "AI-TPM — Enterprise Autonomous Project Manager",
@@ -14,7 +16,9 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body className="antialiased bg-[#090d16] text-slate-100 min-h-screen">
-        {children}
+        <AuthProvider>
+          <AuthGuard>{children}</AuthGuard>
+        </AuthProvider>
       </body>
     </html>
   );

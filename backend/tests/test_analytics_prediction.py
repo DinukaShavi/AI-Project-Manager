@@ -9,6 +9,7 @@ from app.analytics.predictor import PredictiveAnalyticsEngine
 from app.models.tenant import Organization, Workspace
 from app.models.project import Project, ProjectTask
 from app.db.session import SessionLocal
+from tests._auth_helpers import create_authenticated_headers
 
 async def test_analytics_prediction_flow():
     print("Initializing Predictive Analytics validation tests...")
@@ -67,9 +68,11 @@ async def test_analytics_prediction_flow():
                 await session.commit()
                 print(f"Test data created. Project ID: {proj_id}")
 
+            auth_headers = await create_authenticated_headers(client, test_org_id)
+
             # Test GET /api/v1/analytics/burndown
             print("\nTest 2: Requesting GET /api/v1/analytics/burndown...")
-            res = await client.get(f"/api/v1/analytics/burndown?project_id={proj_id}")
+            res = await client.get(f"/api/v1/analytics/burndown?project_id={proj_id}", headers=auth_headers)
             assert res.status_code == 200, f"Burndown request failed: {res.text}"
             b_json = res.json()
             assert b_json["total_story_points"] == 26
@@ -79,7 +82,7 @@ async def test_analytics_prediction_flow():
 
             # Test GET /api/v1/analytics/predict-completion
             print("\nTest 3: Requesting GET /api/v1/analytics/predict-completion...")
-            res = await client.get(f"/api/v1/analytics/predict-completion?project_id={proj_id}")
+            res = await client.get(f"/api/v1/analytics/predict-completion?project_id={proj_id}", headers=auth_headers)
             assert res.status_code == 200, f"Predict completion request failed: {res.text}"
             p_json = res.json()
             assert "forecast" in p_json

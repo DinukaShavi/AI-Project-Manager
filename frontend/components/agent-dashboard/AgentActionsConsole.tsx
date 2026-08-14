@@ -4,25 +4,30 @@ import React, { useState } from "react";
 import { executeAgentPersona, createProjectTask } from "../../lib/api";
 import { Bot, Send, Calendar, Ticket, MessageSquare, CheckCircle2, RefreshCw } from "lucide-react";
 
-const DUMMY_ORG_ID = "00000000-0000-0000-0000-000000000001";
-const DUMMY_PROJECT_ID = "00000000-0000-0000-0000-000000000002";
+interface Props {
+  organizationId: string | null;
+  projectId: string | null;
+}
 
-export default function AgentActionsConsole() {
+export default function AgentActionsConsole({ organizationId, projectId }: Props) {
   const [selectedAction, setSelectedAction] = useState<"jira" | "pr_comment" | "calendar" | "slack">("jira");
   const [inputTitle, setInputTitle] = useState("Configure Slack & GitHub Webhook HMAC Verification");
   const [inputDetails, setInputDetails] = useState("High priority security enhancement for webhook ingestion pipeline.");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
 
+  const canExecute = Boolean(organizationId && projectId);
+
   const handleExecuteAction = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!organizationId || !projectId) return;
     setLoading(true);
     setResult(null);
 
     try {
       if (selectedAction === "jira") {
         const res = await createProjectTask({
-          project_id: DUMMY_PROJECT_ID,
+          project_id: projectId,
           title: inputTitle,
           description: inputDetails,
           status: "todo",
@@ -34,24 +39,24 @@ export default function AgentActionsConsole() {
         const res = await executeAgentPersona(
           "TechnicalPMAgent",
           `Post PR comment: "${inputTitle}" - ${inputDetails}`,
-          DUMMY_ORG_ID,
-          DUMMY_PROJECT_ID
+          organizationId,
+          projectId
         );
         setResult({ status: "success", action: "Commented on PR #42", details: res });
       } else if (selectedAction === "calendar") {
         const res = await executeAgentPersona(
           "SprintPlanningAgent",
           `Schedule Google Calendar meeting: "${inputTitle}"`,
-          DUMMY_ORG_ID,
-          DUMMY_PROJECT_ID
+          organizationId,
+          projectId
         );
         setResult({ status: "success", action: "Google Meet Scheduled", details: res });
       } else if (selectedAction === "slack") {
         const res = await executeAgentPersona(
           "TechnicalPMAgent",
           `Send Slack channel notification: "${inputTitle}"`,
-          DUMMY_ORG_ID,
-          DUMMY_PROJECT_ID
+          organizationId,
+          projectId
         );
         setResult({ status: "success", action: "Slack Message Sent", details: res });
       }
@@ -148,10 +153,16 @@ export default function AgentActionsConsole() {
           />
         </div>
 
+        {!canExecute && (
+          <p className="text-xs text-amber-300">
+            Select a real project above (Project Health Overview) before triggering an autonomous action.
+          </p>
+        )}
+
         <button
           type="submit"
-          disabled={loading}
-          className="w-full py-3 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-emerald-600 hover:opacity-90 text-white font-bold text-sm shadow-lg shadow-purple-500/20 transition-all flex items-center justify-center gap-2"
+          disabled={loading || !canExecute}
+          className="w-full py-3 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-emerald-600 hover:opacity-90 text-white font-bold text-sm shadow-lg shadow-purple-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
         >
           {loading ? (
             <>

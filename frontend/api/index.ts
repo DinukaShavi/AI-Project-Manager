@@ -16,9 +16,12 @@ export { rateLimiterApi } from "./rateLimiter.api";
 export { modelRouterApi } from "./modelRouter.api";
 export { costsApi } from "./costs.api";
 export { graphApi } from "./graph.api";
+export { auditLogApi } from "./auditLog.api";
+export { organizationApi } from "./organization.api";
 export { githubApi } from "./github.api";
 export { jiraApi } from "./jira.api";
 export { slackApi } from "./slack.api";
 export { calendarApi } from "./calendar.api";
+export { recommendationApi } from "./recommendation.api";
 
 

@@ -43,16 +43,66 @@ class GitHubConnector(BaseConnector):
             "raw_payload": payload
         }
 
-    async def fetch_data(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Fetch remote data using GitHub REST API."""
+    def _auth_headers(self) -> Dict[str, str]:
         headers = {
             "Accept": "application/vnd.github.v3+json",
             "User-Agent": "AI-TPM-Integration"
         }
         if self.token:
             headers["Authorization"] = f"token {self.token}"
-            
+        return headers
+
+    async def fetch_data(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Fetch remote data using GitHub REST API."""
         async with httpx.AsyncClient() as client:
-            response = await client.get(f"{self.base_url}/{endpoint.lstrip('/')}", headers=headers, params=params)
+            response = await client.get(f"{self.base_url}/{endpoint.lstrip('/')}", headers=self._auth_headers(), params=params)
+            response.raise_for_status()
+            return response.json()
+
+    async def create_issue(self, repo: str, title: str, body: str = "") -> Dict[str, Any]:
+        """Create a real issue via POST /repos/{repo}/issues."""
+        if not self.token:
+            raise ValueError("A GitHub access token is required to create an issue.")
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{self.base_url}/repos/{repo}/issues",
+                headers=self._auth_headers(),
+                json={"title": title, "body": body}
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def get_authenticated_user(self) -> Dict[str, Any]:
+        """Fetch the connected token's own real GitHub identity via GET /user -- the stable
+        numeric `id` and `login` this deployment did not previously capture anywhere."""
+        if not self.token:
+            raise ValueError("A GitHub access token is required to resolve the authenticated user.")
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{self.base_url}/user", headers=self._auth_headers())
+            response.raise_for_status()
+            return response.json()
+
+    async def list_repositories(self) -> list:
+        """List real repositories the connected token can access (personal + any
+        organization repos in scope) via GET /user/repos, per api_contract.md section 4.A's
+        documented "select GitHub repositories to link" step."""
+        if not self.token:
+            raise ValueError("A GitHub access token is required to list repositories.")
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{self.base_url}/user/repos",
+                headers=self._auth_headers(),
+                params={"per_page": 100, "sort": "updated", "affiliation": "owner,collaborator,organization_member"},
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def get_pull_request(self, repo: str, pr_number: int) -> Dict[str, Any]:
+        """Fetch pull request details (including additions/deletions/changed_files) via
+        GET /repos/{repo}/pulls/{pr_number}."""
+        if not self.token:
+            raise ValueError("A GitHub access token is required to fetch a pull request.")
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{self.base_url}/repos/{repo}/pulls/{pr_number}", headers=self._auth_headers())
             response.raise_for_status()
             return response.json()

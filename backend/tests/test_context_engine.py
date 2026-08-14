@@ -11,6 +11,7 @@ from app.context.chunker import TextChunker
 from app.context.embeddings import get_embedding_generator
 from app.services.context import ContextEngineService
 from app.db.session import SessionLocal
+from tests._auth_helpers import create_authenticated_headers
 
 async def test_context_engine_flow():
     print("Initializing Context Engine validation tests...")
@@ -90,18 +91,20 @@ async def test_context_engine_flow():
                 assert top_result["score"] > 0.0
                 print(f"SUCCESS: Semantic search returned top match with score={top_result['score']:.4f}.")
 
+            auth_headers = await create_authenticated_headers(client, test_org_id)
+
             # 5. Test HTTP API Endpoint: POST /api/v1/context/index
             print("\nTest 5: Requesting POST /api/v1/context/index...")
             api_source_id = str(uuid.uuid4())
             res = await client.post(
                 "/api/v1/context/index",
                 json={
-                    "organization_id": str(test_org_id),
                     "source_type": "pull_request",
                     "source_id": api_source_id,
                     "text": "PR #42: Fixed database session transaction deadlock in Outbox worker loop.",
                     "metadata": {"repo": "ai-tpm-backend"}
-                }
+                },
+                headers=auth_headers
             )
             assert res.status_code == 201, f"Endpoint failed: {res.text}"
             res_json = res.json()
@@ -115,10 +118,10 @@ async def test_context_engine_flow():
             res = await client.post(
                 "/api/v1/context/search",
                 json={
-                    "organization_id": str(test_org_id),
                     "query": "outbox transaction deadlock",
                     "top_k": 5
-                }
+                },
+                headers=auth_headers
             )
             assert res.status_code == 200, f"Search failed: {res.text}"
             search_json = res.json()

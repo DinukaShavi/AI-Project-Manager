@@ -142,12 +142,13 @@ class CircuitBreaker:
         raise RuntimeError(f"CircuitBreaker '{self.name}' call failed after {self.config.max_retries} attempts: {last_exception}")
 
 
-# Singleton Instance Manager
-_llm_circuit_breaker: Optional[CircuitBreaker] = None
+# Singleton Instance Manager — keyed so independent breakers can be tracked per model.
+# A primary model tripping its breaker must not also block attempts against a different
+# fallback model routed to by ModelRouter.execute_with_failover.
+_llm_circuit_breakers: dict = {}
 
-def get_circuit_breaker() -> CircuitBreaker:
-    """Get global LLM Circuit Breaker singleton instance."""
-    global _llm_circuit_breaker
-    if _llm_circuit_breaker is None:
-        _llm_circuit_breaker = CircuitBreaker(name="GlobalLLMCircuitBreaker")
-    return _llm_circuit_breaker
+def get_circuit_breaker(name: str = "GlobalLLMCircuitBreaker") -> CircuitBreaker:
+    """Get (or lazily create) a named LLM Circuit Breaker singleton instance."""
+    if name not in _llm_circuit_breakers:
+        _llm_circuit_breakers[name] = CircuitBreaker(name=name)
+    return _llm_circuit_breakers[name]

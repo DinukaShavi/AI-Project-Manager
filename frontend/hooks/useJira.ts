@@ -10,7 +10,7 @@ import {
   JiraVelocityMetrics,
 } from "../types/jira";
 
-export function useJiraProjects(orgId: string) {
+export function useJiraProjects() {
   const [projects, setProjects] = useState<JiraProject[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -19,14 +19,14 @@ export function useJiraProjects(orgId: string) {
     setLoading(true);
     setError(null);
     try {
-      const res = await jiraApi.getProjects(orgId);
+      const res = await jiraApi.getProjects();
       setProjects(res.projects || []);
     } catch (err: any) {
       setError(err.message || "Failed to load Jira projects");
     } finally {
       setLoading(false);
     }
-  }, [orgId]);
+  }, []);
 
   useEffect(() => {
     fetchProjects();

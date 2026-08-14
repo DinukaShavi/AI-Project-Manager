@@ -1,8 +1,10 @@
 # Import all models for Alembic automatic generation to work
 from app.db.base_class import Base # noqa
 from app.models.tenant import Organization, Workspace, User, Role, Permission # noqa
-from app.models.project import Project, Repository, Meeting # noqa
+from app.models.project import Project, ProjectTask, Repository, SlackChannelMapping, Meeting # noqa
 from app.models.integration import Integration, OAuthToken # noqa
+from app.models.invitation import Invitation # noqa
+from app.models.external_identity import ExternalIdentity # noqa
 from app.models.event import Event # noqa
 from app.models.workflow import WorkflowDefinition, WorkflowExecution # noqa
 from app.models.agent import PromptVersion, ModelConfiguration, AgentExecution, ToolExecution # noqa

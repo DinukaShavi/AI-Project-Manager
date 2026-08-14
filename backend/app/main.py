@@ -12,7 +12,7 @@ app = FastAPI(
 
 # Register Security & Rate Limiting Middlewares
 app.add_middleware(SecurityHeadersMiddleware)
-app.add_middleware(RateLimitingMiddleware, max_requests=120, window_seconds=60)
+app.add_middleware(RateLimitingMiddleware)
 
 # Configure CORS Middleware
 app.add_middleware(

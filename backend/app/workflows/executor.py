@@ -4,7 +4,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.workflows.dag import WorkflowDAG, WorkflowNode
 from app.services.agent import AgentService
-from app.services.tool import ToolService
+from app.tools.executor import ToolExecutor
 
 class WorkflowExecutor:
     def __init__(
@@ -18,7 +18,7 @@ class WorkflowExecutor:
         self.organization_id = organization_id
         self.project_id = project_id
         self.agent_service = AgentService(session)
-        self.tool_service = ToolService(session)
+        self.tool_executor = ToolExecutor()
 
     async def execute_dag(
         self,
@@ -84,10 +84,21 @@ class WorkflowExecutor:
             if "organization_id" not in params:
                 params["organization_id"] = str(self.organization_id)
 
-            tool_result = await self.tool_service.execute_tool(
+            exec_result = await self.tool_executor.execute_tool(
                 tool_name=node.target,
-                parameters=params
+                parameters=params,
+                db=self.session
             )
-            return tool_result
+
+            if exec_result["status"] != "SUCCESS":
+                # PERMISSION_DENIED / WAITING_APPROVAL / VALIDATION_FAILED / TOOL_NOT_FOUND /
+                # EXECUTION_ERROR must halt the DAG rather than silently proceeding as if
+                # the mutating tool action actually ran.
+                raise ValueError(
+                    f"Tool step '{node.node_id}' ({node.target}) did not complete: "
+                    f"{exec_result.get('status')} - {exec_result.get('error') or exec_result.get('message') or exec_result.get('result')}"
+                )
+
+            return exec_result["result"]
         else:
             raise ValueError(f"Unsupported workflow step type '{node.step_type}' for node '{node.node_id}'.")

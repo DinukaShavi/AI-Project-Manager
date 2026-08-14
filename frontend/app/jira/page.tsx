@@ -11,7 +11,7 @@ const DUMMY_ORG_ID = "00000000-0000-0000-0000-000000000001";
 export default function JiraIntegrationPage() {
   const [activeTab, setActiveTab] = useState<"projects" | "issues" | "sprints" | "workload" | "velocity">("issues");
 
-  const { projects, loading: loadingProjects, error: errorProjects, refresh: refreshProjects } = useJiraProjects(DUMMY_ORG_ID);
+  const { projects, loading: loadingProjects, error: errorProjects, refresh: refreshProjects } = useJiraProjects();
   const { issues, loading: loadingIssues, error: errorIssues, refresh: refreshIssues } = useJiraIssues(DUMMY_ORG_ID);
   const { sprints, loading: loadingSprints, error: errorSprints, refresh: refreshSprints } = useJiraSprints(DUMMY_ORG_ID);
   const { workload, velocity, loading: loadingMetrics, error: errorMetrics, refresh: refreshMetrics } = useJiraMetrics(DUMMY_ORG_ID);

@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.workflow import WorkflowDefinition, WorkflowExecution
 from app.workflows.dag import WorkflowDAG, WorkflowNode
 from app.workflows.executor import WorkflowExecutor
+from app.services.audit import AuditService
 
 class WorkflowService:
     def __init__(self, session: AsyncSession):
@@ -99,7 +100,8 @@ class WorkflowService:
         organization_id: UUID,
         project_id: Optional[UUID] = None,
         definition_id: Optional[UUID] = None,
-        initial_context: Optional[Dict[str, Any]] = None
+        initial_context: Optional[Dict[str, Any]] = None,
+        user_id: Optional[UUID] = None
     ) -> WorkflowExecution:
         """Execute WorkflowDAG and record execution in PostgreSQL workflow_executions table."""
         executor = WorkflowExecutor(self.session, organization_id, project_id)
@@ -107,6 +109,7 @@ class WorkflowService:
 
         # Create WorkflowExecution record
         execution = WorkflowExecution(
+            organization_id=organization_id,
             workflow_definition_id=definition_id,
             status=result["status"],
             state_payload={
@@ -115,11 +118,27 @@ class WorkflowService:
             }
         )
         self.session.add(execution)
+        await AuditService(self.session).log(
+            organization_id=organization_id,
+            user_id=user_id,
+            action="workflow:execute",
+            details={"definition_id": str(definition_id) if definition_id else None, "status": result["status"]}
+        )
         await self.session.commit()
         await self.session.refresh(execution)
         return execution
 
-    async def get_execution(self, execution_id: UUID) -> Optional[WorkflowExecution]:
-        """Fetch workflow execution by ID."""
-        res = await self.session.execute(select(WorkflowExecution).where(WorkflowExecution.id == execution_id))
+    async def get_execution(self, execution_id: UUID, organization_id: UUID) -> Optional[WorkflowExecution]:
+        """Fetch a workflow execution by ID, scoped to the caller's organization.
+
+        WorkflowExecution.organization_id is a direct, non-nullable column (unlike
+        AgentExecution's nullable one) -- filtering by it in this single query is both
+        the smallest correct fix and sufficient on its own: an execution belonging to a
+        different organization simply never matches and this returns None, which the
+        caller already turns into a generic 404, so no other tenant's execution
+        existence is ever revealed.
+        """
+        res = await self.session.execute(
+            select(WorkflowExecution).where(WorkflowExecution.id == execution_id, WorkflowExecution.organization_id == organization_id)
+        )
         return res.scalar_one_or_none()

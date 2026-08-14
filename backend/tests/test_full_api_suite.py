@@ -8,6 +8,7 @@ from app.main import app
 from app.models.tenant import Organization, Workspace
 from app.models.project import Project, ProjectTask
 from app.db.session import SessionLocal
+from tests._auth_helpers import create_authenticated_headers
 
 async def test_full_api_suite_flow():
     print("Initializing Full Domain API Suite validation tests...")
@@ -31,14 +32,17 @@ async def test_full_api_suite_flow():
                 await session.commit()
                 print(f"Test Organization created. ID: {org.id}")
 
+            auth_headers = await create_authenticated_headers(client, test_org_id)
+            print("Test user registered and authenticated. Bearer token acquired.")
+
             # 1. Test Workspaces API: POST /api/v1/workspaces & GET /api/v1/workspaces
             print("\nTest 1: Testing Workspaces API endpoints...")
             res = await client.post(
                 "/api/v1/workspaces",
                 json={
-                    "organization_id": str(test_org_id),
                     "name": "Backend Engineering Team"
-                }
+                },
+                headers=auth_headers
             )
             assert res.status_code == 201, f"Workspace creation failed: {res.text}"
             ws_json = res.json()
@@ -46,7 +50,7 @@ async def test_full_api_suite_flow():
             created_workspace_ids.append(ws_id)
             print(f"SUCCESS: Workspace created via API. ID: {ws_json['workspace_id']}")
 
-            res = await client.get(f"/api/v1/workspaces?organization_id={test_org_id}")
+            res = await client.get("/api/v1/workspaces", headers=auth_headers)
             assert res.status_code == 200
             assert res.json()["workspaces_count"] >= 1
             print("SUCCESS: Workspaces listed via API.")
@@ -61,7 +65,8 @@ async def test_full_api_suite_flow():
                     "description": "Enterprise Technical Project Manager System",
                     "jira_project_key": "TPM",
                     "github_repo_name": "acme/ai-tpm"
-                }
+                },
+                headers=auth_headers
             )
             assert res.status_code == 201, f"Project creation failed: {res.text}"
             proj_json = res.json()
@@ -69,7 +74,7 @@ async def test_full_api_suite_flow():
             created_project_ids.append(proj_id)
             print(f"SUCCESS: Project created via API. ID: {proj_json['project_id']}")
 
-            res = await client.get(f"/api/v1/projects/{proj_id}")
+            res = await client.get(f"/api/v1/projects/{proj_id}", headers=auth_headers)
             assert res.status_code == 200
             assert res.json()["jira_project_key"] == "TPM"
             print("SUCCESS: Project details retrieved via API.")
@@ -84,7 +89,8 @@ async def test_full_api_suite_flow():
                     "status": "done",
                     "priority": "high",
                     "story_points": 5
-                }
+                },
+                headers=auth_headers
             )
             assert t1_res.status_code == 201
             created_task_ids.append(uuid.UUID(t1_res.json()["task_id"]))
@@ -97,27 +103,28 @@ async def test_full_api_suite_flow():
                     "status": "in_progress",
                     "priority": "critical",
                     "story_points": 8
-                }
+                },
+                headers=auth_headers
             )
             assert t2_res.status_code == 201
             t2_id = uuid.UUID(t2_res.json()["task_id"])
             created_task_ids.append(t2_id)
             print("SUCCESS: 2 Tasks created via API.")
 
-            res = await client.get(f"/api/v1/tasks?project_id={proj_id}")
+            res = await client.get(f"/api/v1/tasks?project_id={proj_id}", headers=auth_headers)
             assert res.status_code == 200
             assert res.json()["tasks_count"] == 2
             print("SUCCESS: Project tasks listed via API.")
 
             # Update task status to done
-            res = await client.put(f"/api/v1/tasks/{t2_id}", json={"status": "done"})
+            res = await client.put(f"/api/v1/tasks/{t2_id}", json={"status": "done"}, headers=auth_headers)
             assert res.status_code == 200
             assert res.json()["status"] == "done"
             print("SUCCESS: Task status updated via API.")
 
             # 4. Test Sprint Analytics API: GET /api/v1/analytics/sprint
             print("\nTest 4: Testing Sprint Analytics API endpoint...")
-            res = await client.get(f"/api/v1/analytics/sprint?project_id={proj_id}")
+            res = await client.get(f"/api/v1/analytics/sprint?project_id={proj_id}", headers=auth_headers)
             assert res.status_code == 200, f"Analytics failed: {res.text}"
             analytics_json = res.json()
             assert analytics_json["total_tasks"] == 2

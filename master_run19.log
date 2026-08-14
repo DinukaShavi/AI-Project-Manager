@@ -1,0 +1,1741 @@
+========================================================================
+        STARTING MASTER REGRESSION QA TEST SUITE (PHASES 1-34)          
+========================================================================
+
+---> Running QA Suite: Phase 1: Database Foundation
+Starting database model integration tests...
+
+Test 1: Inserting Tenant Models...
+Inserted Organization: ID=8920bcb1-81f9-4f27-9645-5e58ef714f2c, name=Acme Corp ecd78c, created_at=2026-08-12 14:24:36.262485+00:00
+Inserted Workspace: ID=8499403d-18f2-408b-aeb5-ea91de9cca79, name=Development Workspace ecd78c
+Inserted User: ID=6108049a-e0c8-4683-8b15-0390223a47f9, email=alice-ecd78c@acme.com
+SUCCESS: Tenant model relationships verified.
+
+Test 2: Testing Soft Delete...
+SUCCESS: User soft-deleted (deleted_at=2026-08-12 14:24:36.372596+00:00, is_deleted=True)
+
+Test 3: Testing Embedding vector compatibility...
+SUCCESS: Vector embedding successfully stored and retrieved. Array size: 1536
+
+Cleaning up test data...
+sys:1: SAWarning: DELETE statement on table 'users' expected to delete 1 row(s); 0 were matched.  Please set confirm_deleted_rows=False within the mapper configuration to prevent this warning.
+sys:1: SAWarning: DELETE statement on table 'workspaces' expected to delete 1 row(s); 0 were matched.  Please set confirm_deleted_rows=False within the mapper configuration to prevent this warning.
+Cleanup completed successfully.
+
+All database model tests completed successfully!
+PASSED: Phase 1: Database Foundation
+
+---> Running QA Suite: Phase 2: Core Backend Framework
+Initializing Authentication and User API integration tests...
+
+Test 1: Verifying password hashing utilities...
+SUCCESS: Hashing utilities working correctly.
+
+Inserting test tenant database entries...
+Test entries created. User email: bob-13b796@example.com
+
+Test 2: Requesting POST /api/v1/auth/login...
+SUCCESS: Login returned JWT token pair.
+
+Test 3: Requesting GET /api/v1/users/me without token...
+SUCCESS: Unauthorized access blocked.
+
+Test 4: Requesting GET /api/v1/users/me with access token...
+SUCCESS: Authenticated profile fetched successfully.
+
+Test 5: Requesting POST /api/v1/auth/refresh...
+SUCCESS: Token rotation succeeded.
+
+Test 6: Verifying a successful refresh creates the expected audit entry...
+SUCCESS: 'auth:token_refresh_success' audit entry recorded with no leaked token material.
+
+Test 7: Verifying an unattributable invalid-token rejection creates NO audit row...
+SUCCESS: Invalid/unattributable token rejection correctly created no audit row.
+
+Test 8: Verifying a refresh for a soft-deleted user creates 'auth:token_refresh_failed'...
+SUCCESS: 'auth:token_refresh_failed' audit entry recorded for the soft-deleted-user rejection, with no leaked token material.
+
+Test 9: Verifying cross-tenant isolation of the refresh audit trail...
+SUCCESS: Refresh audit entries are correctly tenant-isolated; the owning org's admin sees both.
+
+Cleaning up test database entries...
+Cleanup completed.
+
+All Auth and User endpoint tests completed successfully!
+PASSED: Phase 2: Core Backend Framework
+
+---> Running QA Suite: Phase 3: Event System & Outbox Worker
+Initializing Event Bus and Outbox Service validation tests...
+Connected to Event Bus (Type: InMemoryEventBus).
+Subscribed to stream: 'project_stream'
+
+Inserting test outbox database entries...
+Outbox record created. Event ID: 6e785106-0313-400c-ba6e-f88d493ff247, processed=False
+
+Executing Outbox Service processor...
+Subscriber caught event: ID=8280a5f5-9826-4055-a66f-d103bed17333, data={'id': '6e785106-0313-400c-ba6e-f88d493ff247', 'routing_key': 'project:created', 'organization_id': 'f3df5608-f594-4932-9fb0-c0c8a1f0c245', 'project_id': None, 'payload': {'description': 'AI coordination kernel', 'project_name': 'Nebula Core'}}
+SUCCESS: Outbox record published successfully.
+SUCCESS: Database outbox record updated. processed=True
+
+Waiting for subscriber handler callback...
+SUCCESS: Subscriber triggered by Event Bus.
+SUCCESS: Received event payload matches original outbox data.
+
+Cleaning up test database entries...
+Cleanup completed.
+
+All Event Bus and Outbox integration tests completed successfully!
+PASSED: Phase 3: Event System & Outbox Worker
+
+---> Running QA Suite: Phase 3b: Distributed Lock & Redlock Manager
+Initializing Distributed Lock & Redlock validation tests...
+
+Test 1: Testing lock acquisition & atomic token release...
+SUCCESS: Lock acquisition, collision blocking, and atomic release verified.
+
+Test 2: Testing lock lease extension...
+SUCCESS: Lock lease extension verified.
+
+Test 3: Testing async context manager with auto lease renewal...
+SUCCESS: Async context manager & auto-release verified.
+
+Test 4: Testing lock acquisition timeout exception...
+SUCCESS: Lock timeout exception verified.
+
+All Distributed Lock System tests completed successfully!
+PASSED: Phase 3b: Distributed Lock & Redlock Manager
+
+---> Running QA Suite: Phase 4: Integration Layer Webhooks
+Initializing Integration Layer validation tests...
+
+Test 1: Testing HMAC signature verification algorithms...
+SUCCESS: GitHub HMAC SHA-256 verification verified.
+SUCCESS: Slack HMAC SHA-256 verification verified.
+
+Inserting test organization database entry...
+Test Organization created. ID: 5b0138e0-6c8e-4833-b392-5abb24e3138a
+
+Test 2: Testing IntegrationService direct webhook ingestion...
+SUCCESS: Direct GitHub webhook ingested into Outbox. Routing key: github:pull_request:opened
+
+Test 3: Requesting POST /api/v1/integrations/github/webhook...
+SUCCESS: HTTP GitHub webhook accepted. Event ID: 3ed6843e-de59-4550-a700-9eaacf963844
+
+Test 4: Requesting POST /api/v1/integrations/slack/webhook (URL verification)...
+SUCCESS: Slack URL verification challenge answered correctly.
+
+Test 5: Requesting POST /api/v1/integrations/jira/webhook...
+SUCCESS: Jira webhook accepted. Routing key: jira:jira_issue_created
+
+Cleaning up integration test database entries...
+Cleanup completed.
+
+All Integration Layer tests completed successfully!
+PASSED: Phase 4: Integration Layer Webhooks
+
+---> Running QA Suite: Phase 4b: OAuth 2.0 Provider Authorization & Token Encryption
+Initializing OAuth System & Token Encryption validation tests...
+
+Test 1: Testing AES-256 Fernet token encryption & decryption...
+SUCCESS: Fernet token encryption and decryption verified.
+
+Test 2: Testing OAuth authorize URL generation...
+SUCCESS: OAuth authorization URLs generated successfully.
+
+Test 3: Testing OAuth code exchange & encrypted DB persistence...
+SUCCESS: Real request construction, response parsing, encrypted DB persistence, and token decryption all verified.
+
+Test 4: Testing OAuth HTTP REST API endpoints...
+SUCCESS: OAuth HTTP API endpoints verified end-to-end against the mocked provider.
+
+Cleaning up OAuth test database records...
+Cleanup completed.
+
+All OAuth System & Token Encryption tests completed successfully!
+PASSED: Phase 4b: OAuth 2.0 Provider Authorization & Token Encryption
+
+---> Running QA Suite: Phase 5: Context Engine & Vector Search
+Initializing Context Engine validation tests...
+
+Test 1: Testing TextChunker sentence/paragraph splitting...
+SUCCESS: TextChunker produced 2 chunks.
+
+Test 2: Testing Embedding Generator vector dimensions...
+SUCCESS: Embedding generator returned 1536-dimensional float vector.
+
+Inserting test organization database entry...
+Test Organization created. ID: 9c9fc9a3-a60a-4a1f-9021-6115022751e8
+
+Test 3: Testing ContextEngineService direct indexing...
+SUCCESS: Direct indexing persisted 1 ContextChunk records.
+
+Test 4: Testing ContextEngineService semantic vector search...
+SUCCESS: Semantic search returned top match with score=0.0684.
+
+Test 5: Requesting POST /api/v1/context/index...
+SUCCESS: HTTP index endpoint returned 1 chunks.
+
+Test 6: Requesting POST /api/v1/context/search...
+SUCCESS: HTTP search endpoint returned 2 semantic matches.
+
+Cleaning up context engine test database entries...
+Cleanup completed.
+
+All Context Engine tests completed successfully!
+PASSED: Phase 5: Context Engine & Vector Search
+
+---> Running QA Suite: Phase 6: AI Agent Framework Personas
+Initializing AI Agent Framework validation tests...
+
+Test 1: Testing specialized agent persona instantiations...
+SUCCESS: All 4 agent personas initialized correctly.
+
+Test 2: Testing direct agent task execution outputs...
+SUCCESS: Direct agent task execution completed across all 4 personas.
+
+Inserting test organization database entry...
+Test Organization created. ID: d68377f7-838d-4675-a8b6-7abedc595da1
+
+Test 3: Testing AgentService direct execution & database logging...
+SUCCESS: Agent execution logged in DB. Execution ID: b5e5a64f-bac7-4ea9-9565-64597808d0d5
+
+Test 4: Requesting POST /api/v1/agents/execute...
+SUCCESS: HTTP agent execution accepted. Execution ID: 58ef71c6-c74b-429c-a237-37d719163fc0
+
+Test 5: Requesting GET /api/v1/agents/executions/{execution_id}...
+SUCCESS: Execution log fetched successfully via API.
+
+Cleaning up agent framework test database entries...
+Cleanup completed.
+
+All AI Agent Framework tests completed successfully!
+PASSED: Phase 6: AI Agent Framework Personas
+
+---> Running QA Suite: Phase 6b: Agent Lifecycle State Machine
+Initializing Agent State Machine validation tests...
+
+Test 1: Testing valid vs invalid state machine transitions...
+SUCCESS: State transition rules verified.
+
+Test 2: Testing max retries limit enforcement...
+SUCCESS: Max retries threshold correctly forced FAILED state.
+
+Test 3: Testing worker stale heartbeat detection...
+SUCCESS: Worker crash/stale detection verified.
+
+Test 4: Testing AgentService automatic state machine lifecycle & DB sync...
+SUCCESS: Agent execution completed via State Machine. ID: f9e5a41b-918b-4e40-a5e3-9ba7ef19e3c5
+
+Test 5: Testing POST /api/v1/agents/executions/{execution_id}/transition API...
+SUCCESS: State machine transition executed via HTTP REST API.
+
+Cleaning up State Machine test database records...
+Cleanup completed.
+
+All Agent State Machine tests completed successfully!
+PASSED: Phase 6b: Agent Lifecycle State Machine
+
+---> Running QA Suite: Phase 6c: LLM Timeout & Circuit Breaker Router
+Initializing LLM Circuit Breaker & Exponential Backoff validation tests...
+
+Test 1: Testing exponential backoff calculation...
+SUCCESS: Exponential backoff delay calculation formula verified.
+
+Test 2: Testing CLOSED -> OPEN state transition upon failure threshold...
+SUCCESS: Error rate threshold triggered CLOSED -> OPEN transition.
+
+Test 3: Testing OPEN -> HALF_OPEN -> CLOSED recovery flow...
+SUCCESS: Half-open probe success restored circuit to CLOSED.
+
+Test 4: Testing call_with_circuit_breaker wrapped execution & fallback...
+SUCCESS: Automatic fallback triggered when primary remote call fails.
+
+All LLM Circuit Breaker System tests completed successfully!
+PASSED: Phase 6c: LLM Timeout & Circuit Breaker Router
+
+---> Running QA Suite: Phase 6d: Prompt Context Window Manager & Token Budget Allocator
+Initializing Prompt Context Window Manager & Token Allocator validation tests...
+
+Test 1: Testing token estimation accuracy...
+SUCCESS: Token count estimated correctly. Output: 11 tokens.
+
+Test 2: Testing vector memory similarity score cutoff (< 0.8)...
+SUCCESS: Vector memories with similarity score < 0.8 correctly filtered out.
+
+Test 3: Testing Git diff trimming strategy down to file change stats...
+SUCCESS: Large Git diffs trimmed down to change stats summary.
+
+Test 4: Testing global 8,000 token budget enforcement & priority ordering...
+SUCCESS: Assembled prompt fits budget constraint (42 tokens <= 2200 target).
+
+All Prompt Context Manager tests completed successfully!
+PASSED: Phase 6d: Prompt Context Window Manager & Token Budget Allocator
+
+---> Running QA Suite: Phase 6e: Prompt Versioning, Canary A/B Router & Rollback Engine
+Initializing Prompt Registry, Canary A/B Router & Rollback validation tests...
+
+Test 1: Testing SemVer prompt version registration...
+SUCCESS: SemVer stable and canary prompt versions registered.
+
+Test 2: Testing Canary A/B traffic routing...
+SUCCESS: Active prompt routed to canary version based on traffic weight.
+
+Test 3: Testing automated rollback trigger upon failure threshold breach...
+SUCCESS: Automated rollback triggered; canary deactivated and stable v1.0.0 restored.
+
+Test 4: Testing Prompt Management HTTP REST API endpoints...
+SUCCESS: Prompt management REST API endpoints verified.
+
+All Prompt Registry & Rollback Engine tests completed successfully!
+PASSED: Phase 6e: Prompt Versioning, Canary A/B Router & Rollback Engine
+
+---> Running QA Suite: Phase 7: Tool Registry & Execution Logging
+Initializing Tool Registry validation tests...
+
+Test 1: Testing ToolRegistry tool registration and schema discovery...
+SUCCESS: ToolRegistry discovered 6 tools: ['github_create_issue', 'github_get_pr_diff', 'jira_get_issue', 'jira_update_issue_status', 'slack_post_message', 'context_search']
+
+Test 2: Testing tool execution and parameter schema validation...
+SUCCESS: Parameter validation correctly caught missing field: Missing required parameter 'organization_id' for tool 'github_create_issue'.
+
+Inserting test organization and agent execution database entries...
+Test Organization & AgentExecution created. AgentExec ID: b17c1bb1-d2c9-4c69-9db9-289cd7cba44e
+
+Test 3: Testing ToolService DB audit logging...
+SUCCESS: ToolExecution logged in DB even though the underlying Slack call correctly reported 'not connected'.
+
+Test 4: Requesting GET /api/v1/tools...
+SUCCESS: GET /tools returned 6 tools.
+
+Test 5: Requesting POST /api/v1/tools/execute...
+SUCCESS: HTTP tool execution completed successfully.
+
+Test 6: Requesting POST /api/v1/tools/execute for a high-risk tool with no approval_token...
+SUCCESS: High-risk tool call correctly suspended pending human approval, not executed.
+
+Test 7: Requesting POST /api/v1/tools/execute for the same tool WITH an approval_token...
+SUCCESS: Approval token correctly bypassed the HITL gate and reached tool execution.
+
+Cleaning up tool registry test database entries...
+Cleanup completed.
+
+All Tool Registry tests completed successfully!
+PASSED: Phase 7: Tool Registry & Execution Logging
+
+---> Running QA Suite: Phase 7b: Tool Permission Matrix & RBAC Policy Decision Point
+Initializing Tool Permission Matrix & RBAC PDP validation tests...
+
+Test 1: Testing delete_repository role permissions (SuperAdmin ONLY)...
+SUCCESS: delete_repository restricted to SuperAdmin with mandatory approval.
+
+Test 2: Testing deploy_release role permissions...
+SUCCESS: deploy_release allowed for PM, denied for Developer.
+
+Test 3: Testing modify_prompt role permissions...
+SUCCESS: modify_prompt allowed for OrgAdmin, denied for PM.
+
+Test 4: Testing Viewer role restrictions...
+SUCCESS: Viewer role denied write/tool execution paths.
+
+All Tool Permission Matrix & RBAC PDP tests completed successfully!
+PASSED: Phase 7b: Tool Permission Matrix & RBAC Policy Decision Point
+
+---> Running QA Suite: Phase 8: Workflow Engine Multi-Agent DAGs
+Initializing Workflow Engine validation tests...
+
+Test 1: Testing WorkflowDAG topological levels & cycle detection...
+SUCCESS: Topological execution levels calculated correctly.
+SUCCESS: Cycle detection correctly caught loop: Cycle detected in WorkflowDAG execution graph!
+
+Inserting test organization database entry...
+Test Organization created. ID: 00a07e59-9688-44e6-bd6a-066a27b79ad0
+
+Test 2: Testing Multi-Agent Sprint Review Workflow execution...
+SUCCESS: Multi-agent Sprint Review DAG executed successfully across 3 steps.
+
+Test 3: Requesting POST /api/v1/workflows/definitions...
+SUCCESS: Workflow Definition created via HTTP. ID: 5c15d1b3-5760-43e0-bd7e-fe09bbcf9097
+
+Test 4: Requesting GET /api/v1/workflows/definitions...
+SUCCESS: GET /definitions returned 1 definitions.
+
+Test 5: Requesting POST /api/v1/workflows/execute (architecture_audit template)...
+SUCCESS: Architecture Audit workflow executed via API. ID: 1fdb7238-e097-47ab-b85a-1702fc393a7f
+
+Test 6: Requesting GET /api/v1/workflows/executions/{execution_id}...
+SUCCESS: Workflow execution state retrieved successfully via API.
+
+Test 7: Requesting POST /api/v1/workflows/execute with a high-risk tool node (HITL gate)...
+SUCCESS: Workflow engine correctly halted on an ungated high-risk tool step instead of executing it.
+
+Cleaning up workflow engine test database entries...
+Cleanup completed.
+
+All Workflow Engine tests completed successfully!
+PASSED: Phase 8: Workflow Engine Multi-Agent DAGs
+
+---> Running QA Suite: Phase 8b: Dynamic Model Router & Fallback Engine
+Initializing Dynamic Model Router & Fallback Strategy validation tests...
+
+Test 1: Testing Routing Matrix model selection...
+SUCCESS: Routing Matrix correctly mapped primary and fallback models per task category.
+
+Test 2: Testing Budget Tier model routing adjustments...
+SUCCESS: Low budget tier routed DAG generation to cost-efficient model.
+
+Test 3: Testing Primary -> Fallback failover execution loop...
+SUCCESS: Primary model error triggered automatic failover to GPT-4o.
+
+Test 4: Testing Model Router HTTP REST API endpoints...
+SUCCESS: Model Router REST API endpoints verified.
+
+All Dynamic Model Router & Fallback Strategy tests completed successfully!
+PASSED: Phase 8b: Dynamic Model Router & Fallback Engine
+
+---> Running QA Suite: Phase 9: Memory System Vector Recall
+Initializing Memory System validation tests...
+
+Test 1: Testing in-memory Working Memory Manager...
+SUCCESS: In-memory working memory manager verified.
+
+Inserting test organization database entry...
+Test Organization created. ID: 5710c6f9-d9f3-4751-bd2e-616fefe8c9b0
+
+Test 2: Testing MemoryService direct persistence & entity recall...
+SUCCESS: Entity memory stored in DB. ID: c2551da4-8074-4aa9-8de6-8bc44924d069
+SUCCESS: Entity memory recalled by key.
+
+Test 3: Testing long-term vector memory semantic search...
+SUCCESS: Long-term vector memory stored with 1536-dim embedding.
+SUCCESS: Long-term memory search returned top hit with score=-0.0003.
+
+Test 4: Requesting POST /api/v1/memory...
+SUCCESS: Memory stored via HTTP API. ID: c976c402-632a-4713-93e0-06ac5bbe3930
+
+Test 5: Requesting GET /api/v1/memory...
+SUCCESS: Memory recalled via HTTP API.
+
+Test 6: Requesting POST /api/v1/memory/search...
+SUCCESS: Memory search via HTTP API returned 1 results.
+
+Cleaning up memory system test database entries...
+Cleanup completed.
+
+All Memory System tests completed successfully!
+PASSED: Phase 9: Memory System Vector Recall
+
+---> Running QA Suite: Phase 9b: AI Cost Monitoring, Accounting & Budget Alert Engine
+Initializing AI Cost Monitoring & Budget Alert Engine validation tests...
+
+Test 1: Testing LLM token cost USD formula calculation...
+SUCCESS: Cost calculated accurately ($0.02445).
+
+Test 2: Logging token usage records and checking organization summary...
+SUCCESS: Organization token usage aggregated (Total Spend: $0.0813).
+
+Test 3: Testing Budget Threshold Alert Engine (80% warning, 100% breach)...
+SUCCESS: Budget threshold alert statuses verified.
+
+Test 4: Testing Cost Monitoring HTTP REST API endpoints (authenticated)...
+SUCCESS: Cost Monitoring REST API endpoints verified for the owning organization.
+
+Test 5: Verifying Org B cannot access or attribute usage to Org A's cost data...
+SUCCESS: Org B cannot read Org A's cost data and cannot attribute usage to Org A.
+
+Cleaning up cost monitoring test database entries...
+Cleanup completed.
+
+All AI Cost Monitoring & Budget Alert Engine tests completed successfully!
+PASSED: Phase 9b: AI Cost Monitoring, Accounting & Budget Alert Engine
+
+---> Running QA Suite: Phase 9c: Memory Lifecycle, Summarization & Automated Vector GC
+Initializing Memory Lifecycle & Automated Vector GC validation tests...
+
+Test 1: Testing Memory Compression Pipeline (threshold >= 10 messages)...
+SUCCESS: Conversation compressed, older 30% summarized and indexed into pgvector.
+
+Test 2: Testing Garbage Collection & Cold Storage Partition Rotator...
+SUCCESS: Expired short-term records purged and > 90-day records archived to cold storage.
+
+Test 3: Testing HNSW vector index maintenance sweep...
+SUCCESS: Vector HNSW index rebuild sweep executed.
+
+Test 4: Testing Memory Lifecycle HTTP REST API endpoints...
+SUCCESS: Memory Lifecycle REST API endpoints verified.
+
+All Memory Lifecycle & Automated Vector GC System tests completed successfully!
+PASSED: Phase 9c: Memory Lifecycle, Summarization & Automated Vector GC
+
+---> Running QA Suite: Phase 10: AI HTN Planning System
+Initializing AI Planning System validation tests...
+
+Test 1: Testing HTNPlanner goal decomposition & DAG generation...
+SUCCESS: Goal decomposed into 4-step DAG levels successfully.
+
+Inserting test organization database entry...
+Test Organization created. ID: 0e06e8ac-3bc6-40fa-907b-526b3b1c1a14
+
+Test 2: Testing PlanningService direct plan generation & execution...
+SUCCESS: Plan stored in DB. ID: 181f67ac-9091-4ee9-a2e5-66b86e1abb4a
+SUCCESS: Plan executed and state logged in DB.
+
+Test 3: Requesting POST /api/v1/planning/plan...
+SUCCESS: Plan generated via HTTP API. ID: b9ac5c3b-0c14-4d4a-a3ff-3f7d27767caa
+
+Test 4: Requesting GET /api/v1/planning/plans/{plan_id}...
+SUCCESS: Plan retrieved via HTTP API.
+
+Test 5: Requesting POST /api/v1/planning/execute...
+SUCCESS: Plan decomposed & executed end-to-end via HTTP API. Execution ID: 1b8e120a-fe44-4386-b463-564e874eac58
+
+Cleaning up planning system test database entries...
+Cleanup completed.
+
+All AI Planning System tests completed successfully!
+PASSED: Phase 10: AI HTN Planning System
+
+---> Running QA Suite: Phase 11: Full Domain REST APIs
+Initializing Full Domain API Suite validation tests...
+
+Inserting test organization database entry...
+Test Organization created. ID: 168e8bfa-2447-4cfb-ac81-7733294703a3
+Test user registered and authenticated. Bearer token acquired.
+
+Test 1: Testing Workspaces API endpoints...
+SUCCESS: Workspace created via API. ID: b269ff9f-9700-410e-abc5-7d2717edb707
+SUCCESS: Workspaces listed via API.
+
+Test 2: Testing Projects API endpoints...
+SUCCESS: Project created via API. ID: 8fb7e4e2-4061-418d-827b-bbd28d472370
+SUCCESS: Project details retrieved via API.
+
+Test 3: Testing Tasks API endpoints...
+SUCCESS: 2 Tasks created via API.
+SUCCESS: Project tasks listed via API.
+SUCCESS: Task status updated via API.
+
+Test 4: Testing Sprint Analytics API endpoint...
+SUCCESS: Sprint analytics metrics calculated correctly via API.
+
+Cleaning up full API suite test database entries...
+Cleanup completed.
+
+All Full Domain API Suite tests completed successfully!
+PASSED: Phase 11: Full Domain REST APIs
+
+---> Running QA Suite: Phase 13: Real-Time WebSockets Engine
+Initializing Real-Time WebSocket System validation tests...
+
+Test 1: Testing ConnectionManager instance...
+SUCCESS: ConnectionManager singleton verified.
+Exception closing connection <AdaptedConnection <asyncpg.connection.Connection object at 0x000002DAE15AA7B0>>
+Traceback (most recent call last):
+  File "D:\ai project mnger\venv\Lib\site-packages\sqlalchemy\pool\base.py", line 376, in _close_connection
+    self._dialect.do_close(connection)
+  File "D:\ai project mnger\venv\Lib\site-packages\sqlalchemy\engine\default.py", line 707, in do_close
+    dbapi_connection.close()
+  File "D:\ai project mnger\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 875, in close
+    self.await_(self._connection.close())
+  File "D:\ai project mnger\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 131, in await_only
+    return current.driver.switch(awaitable)  # type: ignore[no-any-return]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ai project mnger\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 196, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "D:\ai project mnger\venv\Lib\site-packages\asyncpg\connection.py", line 1467, in close
+    await self._protocol.close(timeout)
+  File "asyncpg\protocol\protocol.pyx", line 641, in close
+RuntimeError: Task <Task pending name='Task-426' coro=<AsyncEngine.dispose() running at D:\ai project mnger\venv\Lib\site-packages\sqlalchemy\ext\asyncio\engine.py:1145> cb=[_run_until_complete_cb() at C:\Users\acera\AppData\Local\Programs\Python\Python3127\Lib\asyncio\base_events.py:182]> got Future <Future pending cb=[Protocol._on_waiter_completed()]> attached to a different loop
+Exception closing connection <AdaptedConnection <asyncpg.connection.Connection object at 0x000002DAE1A66120>>
+Traceback (most recent call last):
+  File "D:\ai project mnger\venv\Lib\site-packages\sqlalchemy\pool\base.py", line 376, in _close_connection
+    self._dialect.do_close(connection)
+  File "D:\ai project mnger\venv\Lib\site-packages\sqlalchemy\engine\default.py", line 707, in do_close
+    dbapi_connection.close()
+  File "D:\ai project mnger\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 875, in close
+    self.await_(self._connection.close())
+  File "D:\ai project mnger\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 131, in await_only
+    return current.driver.switch(awaitable)  # type: ignore[no-any-return]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ai project mnger\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 196, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "D:\ai project mnger\venv\Lib\site-packages\asyncpg\connection.py", line 1467, in close
+    await self._protocol.close(timeout)
+  File "asyncpg\protocol\protocol.pyx", line 639, in close
+  File "asyncpg\protocol\coreproto.pyx", line 1125, in asyncpg.protocol.protocol.CoreProtocol._terminate
+  File "asyncpg\protocol\protocol.pyx", line 966, in asyncpg.protocol.protocol.BaseProtocol._write
+  File "C:\Users\acera\AppData\Local\Programs\Python\Python3127\Lib\asyncio\proactor_events.py", line 366, in write
+    self._loop_writing(data=bytes(data))
+  File "C:\Users\acera\AppData\Local\Programs\Python\Python3127\Lib\asyncio\proactor_events.py", line 402, in _loop_writing
+    self._write_fut = self._loop._proactor.send(self._sock, data)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'send'
+
+Test 2: Verifying an unauthenticated WebSocket connection is rejected...
+SUCCESS: Unauthenticated WebSocket connection correctly rejected.
+
+Test 3: Verifying an invalid token is rejected...
+SUCCESS: Invalid token correctly rejected.
+
+Test 4: Connecting to WebSocket at /api/v1/ws with a valid token...
+SUCCESS: WebSocket handshake matches the documented api_contract.md envelope.
+
+Test 5: Testing WebSocket ping-pong frame exchange...
+SUCCESS: Received pong frame from WebSocket server.
+
+Test 6: Testing WebSocket organization broadcast frame...
+SUCCESS: Received broadcast event frame scoped to the authenticated user's own organization.
+Exception closing connection <AdaptedConnection <asyncpg.connection.Connection object at 0x000002DAE1ABD130>>
+Traceback (most recent call last):
+  File "D:\ai project mnger\venv\Lib\site-packages\sqlalchemy\pool\base.py", line 376, in _close_connection
+    self._dialect.do_close(connection)
+  File "D:\ai project mnger\venv\Lib\site-packages\sqlalchemy\engine\default.py", line 707, in do_close
+    dbapi_connection.close()
+  File "D:\ai project mnger\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 875, in close
+    self.await_(self._connection.close())
+  File "D:\ai project mnger\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 131, in await_only
+    return current.driver.switch(awaitable)  # type: ignore[no-any-return]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ai project mnger\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 196, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "D:\ai project mnger\venv\Lib\site-packages\asyncpg\connection.py", line 1467, in close
+    await self._protocol.close(timeout)
+  File "asyncpg\protocol\protocol.pyx", line 639, in close
+  File "asyncpg\protocol\coreproto.pyx", line 1125, in asyncpg.protocol.protocol.CoreProtocol._terminate
+  File "asyncpg\protocol\protocol.pyx", line 966, in asyncpg.protocol.protocol.BaseProtocol._write
+  File "C:\Users\acera\AppData\Local\Programs\Python\Python3127\Lib\asyncio\proactor_events.py", line 366, in write
+    self._loop_writing(data=bytes(data))
+  File "C:\Users\acera\AppData\Local\Programs\Python\Python3127\Lib\asyncio\proactor_events.py", line 402, in _loop_writing
+    self._write_fut = self._loop._proactor.send(self._sock, data)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'send'
+Exception closing connection <AdaptedConnection <asyncpg.connection.Connection object at 0x000002DAE1ABC8C0>>
+Traceback (most recent call last):
+  File "D:\ai project mnger\venv\Lib\site-packages\sqlalchemy\pool\base.py", line 376, in _close_connection
+    self._dialect.do_close(connection)
+  File "D:\ai project mnger\venv\Lib\site-packages\sqlalchemy\engine\default.py", line 707, in do_close
+    dbapi_connection.close()
+  File "D:\ai project mnger\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 875, in close
+    self.await_(self._connection.close())
+  File "D:\ai project mnger\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 131, in await_only
+    return current.driver.switch(awaitable)  # type: ignore[no-any-return]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\ai project mnger\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 196, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "D:\ai project mnger\venv\Lib\site-packages\asyncpg\connection.py", line 1467, in close
+    await self._protocol.close(timeout)
+  File "asyncpg\protocol\protocol.pyx", line 639, in close
+  File "asyncpg\protocol\coreproto.pyx", line 1125, in asyncpg.protocol.protocol.CoreProtocol._terminate
+  File "asyncpg\protocol\protocol.pyx", line 966, in asyncpg.protocol.protocol.BaseProtocol._write
+  File "C:\Users\acera\AppData\Local\Programs\Python\Python3127\Lib\asyncio\proactor_events.py", line 366, in write
+    self._loop_writing(data=bytes(data))
+  File "C:\Users\acera\AppData\Local\Programs\Python\Python3127\Lib\asyncio\proactor_events.py", line 402, in _loop_writing
+    self._write_fut = self._loop._proactor.send(self._sock, data)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'send'
+
+All Real-Time WebSocket System tests completed successfully!
+PASSED: Phase 13: Real-Time WebSockets Engine
+
+---> Running QA Suite: Phase 14: Predictive Analytics Engine
+Initializing Predictive Analytics validation tests...
+
+Test 1: Testing PredictiveAnalyticsEngine direct math operations...
+SUCCESS: Burndown trajectory calculated correctly.
+SUCCESS: Completion forecast calculated correctly.
+SUCCESS: Delivery risk assessment score calculated correctly.
+
+Inserting test tenant entries for Analytics API...
+Test data created. Project ID: 135804c8-5182-45c1-ad68-0f324e9a4321
+
+Test 2: Requesting GET /api/v1/analytics/burndown...
+SUCCESS: Burndown trajectory fetched via HTTP API.
+
+Test 3: Requesting GET /api/v1/analytics/predict-completion...
+SUCCESS: Completion forecast fetched via HTTP API. Risk Score: 0.67
+
+Cleaning up analytics test database entries...
+Cleanup completed.
+
+All Predictive Analytics tests completed successfully!
+PASSED: Phase 14: Predictive Analytics Engine
+
+---> Running QA Suite: Phase 15: Security Hardening & Rate Limits
+Initializing Security Hardening validation tests...
+
+Test 1: Testing input string sanitization...
+SUCCESS: Input sanitized correctly: '&lt;script&gt;alert(&#x27;xss_attack&#x27;)&lt;/script&gt;'
+
+Test 2: Testing OWASP security response headers...
+[32m2026-08-12 19:54:49.229[0m | [34m[1mDEBUG   [0m | [36mapp.main[0m:[36mhealth_check[0m:[36m49[0m - [34m[1mHealth check requested.[0m
+SUCCESS: All 4 OWASP security headers verified on HTTP response.
+
+Test 3: Testing IP rate limiting middleware threshold enforcement...
+SUCCESS: HTTP 429 Too Many Requests returned upon exceeding rate threshold.
+
+Test 3b: Testing authenticated requests are dimensioned per-user, not per-IP...
+SUCCESS: Authenticated requests are correctly dimensioned per-user, isolated from anonymous per-IP traffic.
+
+All Security Hardening tests completed successfully!
+PASSED: Phase 15: Security Hardening & Rate Limits
+
+---> Running QA Suite: Phase 15b: Row-Level Security (RLS) Tenant Isolation
+Initializing PostgreSQL Row-Level Security (RLS) validation tests...
+SUCCESS: Tenant A isolation and row invisibility verified.
+SUCCESS: Mismatched tenant insertion correctly blocked by RLS check policy.
+SUCCESS: RLS bypass verified successfully.
+Cleanup completed.
+
+All RLS isolation tests completed successfully!
+PASSED: Phase 15b: Row-Level Security (RLS) Tenant Isolation
+
+---> Running QA Suite: Phase 15c: Multi-Dimensional Rate Limiting Engine & Token Bucket
+Initializing Multi-Dimensional Rate Limiting Engine & Token Bucket validation tests...
+
+Test 1: Testing Token Bucket consumption and refill logic (in-memory fallback)...
+SUCCESS: Token bucket consumed single token from burst capacity via the in-memory fallback.
+
+Test 2: Testing LLM Call Bucket exhaustion (30 burst limit)...
+SUCCESS: LLM_CALL rate limit exceeded. Retry after 3s calculated.
+
+Test 3: Testing HTTP rate limit response header construction...
+SUCCESS: Rate limit HTTP headers constructed.
+
+Test 3b: Testing the Redis-backed token bucket path against a mocked Redis client...
+SUCCESS: Redis-backed path correctly invoked the Lua token-bucket script and parsed its reply.
+
+Test 3c: Testing fallback to in-memory when a present Redis client errors out...
+SUCCESS: A failing Redis call correctly degraded to the in-memory bucket instead of raising.
+
+Test 4: Testing Rate Limiter HTTP REST API endpoints & 429 responses...
+SUCCESS: Rate Limiter REST API returned HTTP 429 with Retry-After header.
+
+All Multi-Dimensional Rate Limiting Engine tests completed successfully!
+PASSED: Phase 15c: Multi-Dimensional Rate Limiting Engine & Token Bucket
+
+---> Running QA Suite: Phase 15d: Enterprise Security: Prompt Injection Guard & PII Redaction
+Initializing Enterprise Security Controls: Prompt Injection & PII Data Masking validation tests...
+
+Test 1: Testing Prompt Injection Defense pattern scanner...
+SUCCESS: Prompt injection scanner correctly blocked adversarial prompts and allowed benign inputs.
+
+Test 2: Testing PII Data Masking redaction pipeline...
+SUCCESS: Sensitive PII entities redacted (Masked counts: {'email': 1, 'ssn': 1, 'phone': 1, 'api_key': 1}).
+
+Test 3: Testing full SecurityGuardEngine sanitization pipeline...
+SUCCESS: Full security pipeline execution verified.
+
+Test 4: Testing Security Guard HTTP REST API endpoints...
+SUCCESS: Security Guard REST API endpoints verified.
+
+All Enterprise Security Controls tests completed successfully!
+PASSED: Phase 15d: Enterprise Security: Prompt Injection Guard & PII Redaction
+
+---> Running QA Suite: Phase 15e: Multi-Tenant Schema & Virtual Isolation Engine
+Initializing Multi-Tenant Schema & Virtual Isolation Engine validation tests...
+
+Test 1: Testing key namespace partitioning across Redis, Event Bus, Queues & WebSockets...
+SUCCESS: Tenant namespace partitioning formatting verified.
+
+Test 2: Testing pgvector query filter tenant_id injection...
+SUCCESS: Vector search query filter successfully injected tenant isolation boundaries.
+
+Test 3: Testing Cross-Tenant Access Audit & Boundary Enforcement...
+SUCCESS: Cross-tenant security access audit verified.
+
+Test 4: Testing Tenant Isolation HTTP REST API endpoints...
+SUCCESS: Multi-Tenant Isolation REST API endpoints verified.
+
+All Multi-Tenant Schema & Virtual Isolation Engine tests completed successfully!
+PASSED: Phase 15e: Multi-Tenant Schema & Virtual Isolation Engine
+
+---> Running QA Suite: Phase 16: Project Intelligence Engine Core
+Initializing Project Intelligence Engine validation tests...
+Test 1: Testing Knowledge Graph entity & edge traversal...
+SUCCESS: Knowledge Graph operations verified.
+Test 2: Testing HTN Planner decomposition and dynamic replanning loop...
+SUCCESS: HTN Planner replanning verified.
+Test 3: Testing Tool Executor capability matching and approval gates...
+SUCCESS: Tool Executor approval gates verified.
+Test 4: Testing Self-Reflection Engine confidence evaluation...
+SUCCESS: Self-Reflection confidence evaluation verified.
+Test 5: Testing Monte Carlo 1,000-run velocity simulation...
+SUCCESS: Monte Carlo simulation verified.
+Test 6: Testing Project Intelligence Engine end-to-end processing...
+SUCCESS: Project Intelligence Engine end-to-end verified.
+Test 7: Requesting POST /api/v1/planning/intelligence...
+SUCCESS: HTTP intelligence endpoint verified.
+All Project Intelligence Engine tests completed successfully!
+PASSED: Phase 16: Project Intelligence Engine Core
+
+---> Running QA Suite: Phase 16b: Knowledge Graph Weight Decay & Event Inference Pipeline
+Initializing Knowledge Graph Relationship Weight Decay & Inference Pipeline validation tests...
+
+Test 1: Testing Weight = BaseWeight * (1 - DecayFactor * AgeDays) formula...
+SUCCESS: Weight decay formula calculated accurately with minimum floor.
+
+Test 2: Testing Entity Linker & Event Inference Pipeline...
+SUCCESS: Entity linker and event inference pipeline verified.
+
+Test 3: Testing Decay Sweep and Graph Traverser filtering...
+SUCCESS: Decay sweep and graph traverser verified.
+
+Test 4: Testing Graph Evolution HTTP REST API endpoints...
+SUCCESS: Knowledge Graph Evolution REST API endpoints verified.
+
+All Knowledge Graph Evolution System tests completed successfully!
+PASSED: Phase 16b: Knowledge Graph Weight Decay & Event Inference Pipeline
+
+---> Running QA Suite: Phase 17: AI Evaluation & Benchmark Framework
+Initializing AI Evaluation & Benchmark Framework validation tests...
+
+Test 1: Testing Tool Success Rate (TSR) calculation...
+SUCCESS: Tool Success Rate calculated correctly (80.0%).
+
+Test 2: Testing Planning Accuracy evaluation against reference DAG...
+SUCCESS: Planning accuracy calculated correctly (75.0%).
+
+Test 3: Testing Hallucination Rate contradiction detection...
+SUCCESS: Hallucination rate evaluated correctly (valid: 0.0, hallucinated: 1.0).
+
+Test 4: Testing Benchmark Suite assertions runner...
+SUCCESS: Benchmark suite assertions executed and passed.
+
+Test 5: Testing Evaluation HTTP REST API endpoints...
+SUCCESS: Evaluation REST API endpoints verified.
+
+All AI Evaluation & Benchmark System tests completed successfully!
+PASSED: Phase 17: AI Evaluation & Benchmark Framework
+
+---> Running QA Suite: Phase 18: OpenTelemetry Distributed Tracing & Telemetry Exporter
+Initializing OpenTelemetry Distributed Tracing & Observability validation tests...
+
+Test 1: Testing W3C traceparent (00-{trace_id}-{span_id}-01) & tracestate propagation...
+SUCCESS: Trace context generated (traceparent=00-7fbaa2545d0746b6804461cb7163aba6-37202bf8b13342b8-01).
+
+Test 2: Testing span recording across telemetry latency categories...
+SUCCESS: Spans recorded and durations computed accurately.
+
+Test 3: Testing OTel trace export and Prometheus metrics summary...
+SUCCESS: Jaeger trace export and Prometheus metrics summary verified.
+
+Test 4: Testing Observability HTTP REST API endpoints...
+SUCCESS: Observability REST API endpoints verified.
+
+All OpenTelemetry Distributed Tracing & Observability System tests completed successfully!
+PASSED: Phase 18: OpenTelemetry Distributed Tracing & Telemetry Exporter
+
+---> Running QA Suite: Phase 19: Frontend-to-Backend API Contract Integration
+Initializing Frontend-to-Backend API Contract Integration validation tests...
+SUCCESS: Frontend API contract verified for Observability metrics.
+SUCCESS: Frontend API contract verified for Security prompt scanner.
+SUCCESS: Frontend API contract verified for Rate Limiter token bucket.
+SUCCESS: Frontend API contract verified for Model Router matrix.
+SUCCESS: Frontend API contract verified for Cost Monitoring summary.
+SUCCESS: Frontend API contract verified for Knowledge Graph traversal.
+
+All Frontend-to-Backend API Contract Integration tests completed successfully!
+PASSED: Phase 19: Frontend-to-Backend API Contract Integration
+
+---> Running QA Suite: Phase 20: Production Deployment Scaffolding (Terraform, k8s, CI/CD)
+Initializing Production Deployment Scaffolding validation tests...
+
+Test 1: Verifying Terraform infrastructure configuration file...
+SUCCESS: Terraform infrastructure module validated.
+
+Test 2: Verifying Kubernetes production deployment manifests...
+SUCCESS: Kubernetes manifests validated.
+
+Test 3: Verifying multi-stage production Dockerfile...
+SUCCESS: Production multi-stage Dockerfile validated.
+
+Test 4: Verifying GitHub Actions CI/CD deployment workflow...
+SUCCESS: CI/CD deployment workflow validated.
+
+All Production Deployment Scaffolding tests completed successfully!
+PASSED: Phase 20: Production Deployment Scaffolding (Terraform, k8s, CI/CD)
+
+---> Running QA Suite: Phase 21: Audit Logging (append-only security event trail)
+Initializing Audit Logging validation tests...
+Test Organization created. ID: 5be4f553-eda8-4226-ba29-be4824604847
+
+Test 1: Verifying POST /users/register writes an audit_logs entry...
+SUCCESS: Registration audit entry persisted correctly.
+
+Test 2: Verifying a failed login writes 'auth:login_failed'...
+SUCCESS: Failed login audit entry persisted correctly.
+
+Test 3: Verifying a successful login writes 'auth:login_success'...
+SUCCESS: Successful login audit entry persisted correctly.
+
+Test 4: Verifying POST /tools/execute writes 'tool:execute'...
+SUCCESS: Tool execution audit entry persisted correctly.
+
+Test 5: Verifying a HITL-suspended tool call still writes 'tool:execute'...
+SUCCESS: HITL-suspended tool call was still audited, not silently skipped.
+
+Test 6: Verifying POST /workflows/execute writes 'workflow:execute'...
+SUCCESS: Workflow execution audit entry persisted correctly.
+
+Cleaning up audit logging test database entries...
+Cleanup completed.
+
+All Audit Logging tests completed successfully!
+PASSED: Phase 21: Audit Logging (append-only security event trail)
+
+---> Running QA Suite: Phase 22: Default Role Seeding & RBAC Differentiation
+Initializing Role Assignment & RBAC Differentiation validation tests...
+Test Organization created. ID: 21d1cd86-703b-49bd-96aa-7e7d1a706cfd
+
+Test 1: Verifying default roles were seeded by the migration...
+SUCCESS: All 5 canonical roles present in the database.
+
+Test 2: Verifying registration auto-assigns the 'Developer' role...
+SUCCESS: New registrant was auto-assigned the 'Developer' role.
+
+Test 3: Verifying a Developer-role user is denied a SuperAdmin-only tool...
+SUCCESS: Developer-role user correctly denied a SuperAdmin-only tool (403).
+
+Test 4: Verifying a SuperAdmin-role user passes the same RBAC check...
+SUCCESS: SuperAdmin-role user passed the RBAC check where the Developer was denied.
+
+Cleaning up role assignment test database entries...
+Cleanup completed.
+
+All Role Assignment & RBAC Differentiation tests completed successfully!
+PASSED: Phase 22: Default Role Seeding & RBAC Differentiation
+
+---> Running QA Suite: Phase 23: Audit Logs Viewer (RBAC-gated, tenant-isolated)
+Initializing Audit Logs Viewer validation tests...
+Test Organizations created. A=743cc3f7-dc0e-49f2-ae5e-3535f5f74a54 B=0c8f6097-06c5-4dc4-9905-2491cccd68fd
+
+Test 1: Verifying a Developer-role user is denied GET /audit-logs (403)...
+SUCCESS: Developer-role user correctly denied audit log access (403).
+
+Test 2: Verifying an OrgAdmin-role user can list the org's audit log...
+SUCCESS: OrgAdmin viewed 3 audit entries including the Developer's registration.
+
+Test 3: Verifying the 'action' filter narrows results...
+SUCCESS: Action filter correctly narrowed results.
+
+Test 4: Verifying cross-tenant isolation on the audit log endpoint...
+SUCCESS: Org B's admin cannot see Org A's audit entries.
+
+Cleaning up audit log viewer test database entries...
+Cleanup completed.
+
+All Audit Logs Viewer tests completed successfully!
+PASSED: Phase 23: Audit Logs Viewer (RBAC-gated, tenant-isolated)
+
+---> Running QA Suite: Phase 24: Role Management (grant/revoke, privilege-escalation guard)
+Initializing Role Management (grant/revoke) validation tests...
+Test orgs and seed admins created. OrgAdmin=8ba18a98-bd9b-4048-bda1-9ce7881d7abe SuperAdmin=79b49052-8f08-473b-a5ce-9ae378b65037
+
+Test 1: Verifying a Developer-role actor is denied role management (403)...
+SUCCESS: Non-admin actor correctly denied.
+
+Test 2: Verifying OrgAdmin can grant 'ProjectManager' to a same-org user...
+SUCCESS: Role granted; user now holds both Developer and ProjectManager.
+
+Test 3: Verifying re-granting the same role is idempotent...
+SUCCESS: Re-granting did not duplicate the role assignment.
+
+Test 4: Verifying a mere OrgAdmin cannot grant 'SuperAdmin' (403)...
+SUCCESS: OrgAdmin correctly blocked from granting SuperAdmin.
+
+Test 5: Verifying a SuperAdmin CAN grant 'SuperAdmin'...
+SUCCESS: SuperAdmin actor successfully granted SuperAdmin.
+
+Test 6: Verifying cross-tenant role management is denied...
+SUCCESS: Cross-tenant role management correctly denied.
+
+Test 7: Verifying role revocation...
+SUCCESS: Role revoked and revocation is idempotent.
+
+Test 8: Verifying role grant/revoke actions were audit-logged...
+SUCCESS: 5 role management audit entries recorded.
+
+Cleaning up role management test database entries...
+Cleanup completed.
+
+All Role Management tests completed successfully!
+PASSED: Phase 24: Role Management (grant/revoke, privilege-escalation guard)
+
+---> Running QA Suite: Phase 25: Organization Settings Console (settings + members, tenant-isolated)
+Initializing Organization Settings Console validation tests...
+Test orgs and admins created. Org A=e3f8bf49-22e0-40cc-b45b-9328880b78c7 Org B=0d0521a6-f7e5-47a0-818e-5c8e041334cc
+
+Test 1: Verifying a Developer-role user is denied GET /organizations/settings (403)...
+SUCCESS: Developer correctly denied.
+
+Test 2: Verifying OrgAdmin can view org settings with the documented schema...
+SUCCESS: Org settings response matches the documented api_contract.md schema.
+
+Test 3: Verifying OrgAdmin can list organization members with roles...
+SUCCESS: Members list returned 2 members including the Developer's role.
+
+Test 4: Verifying organization settings/members are tenant-isolated...
+SUCCESS: Organization settings and members are correctly tenant-isolated.
+
+Cleaning up organization settings test database entries...
+Cleanup completed.
+
+All Organization Settings Console tests completed successfully!
+PASSED: Phase 25: Organization Settings Console (settings + members, tenant-isolated)
+
+---> Running QA Suite: Phase 26: Real LLM Provider Integration (Claude primary, GPT-4o fallback, synthetic last-resort)
+Initializing Real LLM Provider Integration (Claude/GPT-4o via ModelRouter) validation tests...
+
+Test 1: Verifying unconfigured providers fall back to synthetic reasoning...
+SUCCESS: No credentials configured — synthetic fallback used, matching prior behavior.
+
+Test 2: Verifying a configured Anthropic key routes through the real Messages API...
+SUCCESS: Real Anthropic request construction and response parsing verified.
+
+Test 3: Verifying failover from a failing Claude call to a working GPT-4o call...
+SUCCESS: ModelRouter correctly failed over from Claude to GPT-4o on a real provider error.
+
+Test 4: Verifying both-providers-failing still degrades to synthetic reasoning...
+SUCCESS: Total provider failure correctly degraded to synthetic reasoning, not an exception.
+
+All Real LLM Provider Integration tests completed successfully!
+PASSED: Phase 26: Real LLM Provider Integration (Claude primary, GPT-4o fallback, synthetic last-resort)
+
+---> Running QA Suite: Phase 27: Real GitHub/Jira/Slack Tool Execution (not canned responses)
+Initializing Real Tool Execution (GitHub/Jira/Slack) validation tests...
+Test Organization created. ID: e4248ecb-2966-4ab0-8e43-5bfbccd541d5
+
+Test 1: Verifying github_create_issue with a connected token calls the real GitHub API...
+SUCCESS: github_create_issue made a real, correctly-authenticated request and returned the real response.
+
+Test 2: Verifying github_get_pr_diff returns real PR stats from the mocked API...
+SUCCESS: github_get_pr_diff returned real (mocked) PR statistics, not fabricated constants.
+
+Test 3: Verifying slack_post_message with a connected token calls the real Slack API...
+SUCCESS: slack_post_message made a real, correctly-authenticated request and returned the real response.
+
+Test 4: Verifying Jira tools use the real (mocked) Jira REST API v3...
+SUCCESS: Jira get_issue and the two-step transition_issue flow both used the real (mocked) REST API v3.
+
+Cleaning up real tool integration test database entries...
+Cleanup completed.
+
+All Real Tool Execution tests completed successfully!
+PASSED: Phase 27: Real GitHub/Jira/Slack Tool Execution (not canned responses)
+
+---> Running QA Suite: Phase 28: pgvector-Native Similarity Search (query construction + routing)
+Initializing pgvector-native similarity search validation tests...
+
+Test 1: Verifying ContextRepository's native query compiles with the <=> operator, ORDER BY, and LIMIT pushed to SQL...
+SUCCESS: Native query pushes cosine-distance ordering and LIMIT down to Postgres via pgvector's <=> operator.
+
+Test 2: Verifying MemoryService's native query compiles with the <=> operator...
+SUCCESS: Native long-term memory query also pushes cosine-distance ordering down to Postgres.
+
+Test 3: Verifying USE_PGVECTOR routes ContextRepository.search_context correctly...
+SUCCESS: search_context correctly routes based on settings.USE_PGVECTOR.
+
+Test 4: Verifying USE_PGVECTOR routes MemoryService.search_long_term_memory correctly...
+SUCCESS: search_long_term_memory correctly routes based on settings.USE_PGVECTOR.
+
+All pgvector-native similarity search tests completed successfully!
+NOTE: The native <=> query path's SQL construction was verified by compiling it to
+real pgvector SQL; live execution against a pgvector-enabled Postgres could not be
+verified in this environment (the 'vector' extension is not installed here).
+PASSED: Phase 28: pgvector-Native Similarity Search (query construction + routing)
+
+---> Running QA Suite: Phase 29: Jira Backup Delta-Sync Poller (documented 4h backup cron)
+Initializing Jira Backup Delta-Sync validation tests...
+Test orgs and integrations created. A=e88fb46c-2360-4b7d-a995-b99371b4405b (never synced) B=3e740e35-6387-47ec-b66a-18ce0bb489b3 (synced 6h ago)
+
+Test 1: Verifying a never-synced integration uses the '-4h' JQL fallback...
+SUCCESS: Never-synced integration correctly used the -4h relative JQL query.
+
+Test 2: Verifying a previously-synced integration uses its last_synced_at watermark...
+SUCCESS: Previously-synced integration correctly used its stored watermark instead of the fallback window.
+
+Test 3: Verifying ingested issues become real outbox Events and the watermark advances...
+SUCCESS: Backup sync persisted real outbox events and advanced the sync watermark.
+
+Test 4: Verifying inactive and non-Jira integrations are skipped...
+SUCCESS: Inactive and non-Jira integrations correctly skipped (0 ingested, no error).
+
+Test 5: Verifying run_backup_sync_all sweeps all orgs and tolerates a failing integration...
+SUCCESS: run_backup_sync_all swept 2 integrations across all organizations; one failure did not abort the rest.
+
+Cleaning up backup sync test database entries...
+Cleanup completed.
+
+All Jira Backup Delta-Sync tests completed successfully!
+PASSED: Phase 29: Jira Backup Delta-Sync Poller (documented 4h backup cron)
+
+---> Running QA Suite: Phase 30: GitHub Repository Linking (api_contract.md 4.A, tenant-isolated)
+Initializing GitHub Repository Linking validation tests...
+Test orgs, workspace, and project created. Org A=af7950d0-61fe-4532-bf4b-8684591c1ac6 Org B=0352f87b-5219-403b-ba4f-83c31200e2e9 Project A=3ecc8d82-37c2-42b5-a29a-8806abc76fe7
+
+Test 1: Linking a repository to an owned project...
+SUCCESS: Repository linked, id=5d73e7bc-1f2f-4160-b472-01daec90d34e
+
+Test 2: Verifying the Repository row was actually persisted with the correct organization_id...
+SUCCESS: Repository row persisted with correct tenant scoping.
+
+Test 3: Verifying re-linking the same repo updates in place instead of duplicating...
+SUCCESS: Re-linking updated the existing row in place; no duplicate rows created.
+
+Test 4: Verifying cross-tenant project access is rejected...
+SUCCESS: Cross-tenant repository linking correctly rejected with 404.
+
+Test 5: Verifying a nonexistent project_id returns 404...
+SUCCESS: Nonexistent project_id correctly returns 404.
+
+Cleaning up repository linking test database entries...
+Cleanup completed.
+
+All GitHub Repository Linking tests completed successfully!
+PASSED: Phase 30: GitHub Repository Linking (api_contract.md 4.A, tenant-isolated)
+
+---> Running QA Suite: Phase 31: Google Calendar Sync (api_contract.md 7.A, polling-driven primary sync path)
+Initializing Google Calendar Sync validation tests...
+Test orgs/workspaces/projects created. Org A=83974998-38e1-4800-a5c1-66e6eec2915e (calendar connected) Org C=51275eb8-c741-42c0-95e0-45efb1dc17f7 (not connected)
+
+Test 1: Syncing calendar events for a connected organization...
+SUCCESS: Sync completed, events_synced=2, sync_task_id=e6efa76a-60ce-4a90-a015-278a9aa415b7
+
+Test 2: Verifying Meeting rows were actually persisted with correct data...
+SUCCESS: Meeting rows correctly persisted with parsed times and attendees.
+
+Test 3: Verifying re-sync updates existing rows instead of duplicating...
+SUCCESS: Re-sync updated existing rows; no duplicates created.
+
+Test 4: Verifying a not-connected organization gets a 400, not a crash...
+SUCCESS: Not-connected organization correctly rejected with 400.
+
+Test 5: Verifying cross-tenant project access is rejected...
+SUCCESS: Cross-tenant calendar sync correctly rejected with 404.
+
+Test 6: Verifying a nonexistent project_id returns 404...
+SUCCESS: Nonexistent project_id correctly returns 404.
+
+Cleaning up calendar sync test database entries...
+Cleanup completed.
+
+All Google Calendar Sync tests completed successfully!
+PASSED: Phase 31: Google Calendar Sync (api_contract.md 7.A, polling-driven primary sync path)
+
+---> Running QA Suite: Phase 32: Slack Channel-to-Project Mapping (api_contract.md 6.A, webhook auto-routing)
+Initializing Slack Channel Mapping validation tests...
+Test orgs/workspace/projects created. Org A=19c84908-4841-4dfd-b785-4c040f0141ea Org B=ff1d32c3-4fbc-4cb5-b759-285dcbf1debd Project A=9a20073e-fb73-4848-9c72-735115e11d2d Project A2=b4899aa7-4bae-46e9-8d92-0efd895d9b9a
+
+Test 1: Mapping a Slack channel to an owned project...
+SUCCESS: Channel mapped, id=736dd8c3-30e9-4bd9-8047-339dd1a7920f
+
+Test 2: Verifying the mapping row was actually persisted...
+SUCCESS: Mapping row persisted with correct tenant scoping.
+
+Test 3: Verifying re-mapping the same channel updates in place...
+SUCCESS: Re-mapping updated the existing row in place; no duplicates.
+
+Test 4: Verifying cross-tenant channel claim is rejected...
+SUCCESS: Cross-tenant channel claim correctly rejected with 409.
+
+Test 5: Verifying a nonexistent project_id returns 404...
+SUCCESS: Nonexistent project_id correctly returns 404.
+
+Test 6: Verifying webhook messages on a mapped channel auto-route to the correct project...
+SUCCESS: Webhook message auto-routed to the mapped project via channel lookup.
+
+Cleaning up Slack channel mapping test database entries...
+Cleanup completed.
+
+All Slack Channel Mapping tests completed successfully!
+PASSED: Phase 32: Slack Channel-to-Project Mapping (api_contract.md 6.A, webhook auto-routing)
+
+---> Running QA Suite: Phase 33: Google Calendar Background Poller (implementation_roadmap.md Milestone 10, 15-min cadence)
+Initializing Calendar Background Poller validation tests...
+Test orgs created. A=1e618591-c3b5-40f4-8de5-b972a64683af B=a6f4faea-7465-43d9-bf9c-f9d45af7b736 C=2e5bfabb-d3eb-4011-ac29-619c81730542(inactive) D=bb02a231-8786-4cbe-98d9-1812af89b82c(expired token)
+
+Test 1: Verifying the poll interval matches the documented 15-minute cadence...
+SUCCESS: CALENDAR_POLL_INTERVAL_SECONDS == 900 (15 minutes).
+
+Test 2: Verifying tenant discovery finds active integrations only...
+SUCCESS: Discovered 3 active integrations; inactive Org C correctly excluded.
+
+Test 3: Verifying poll sync runs and persists real Meeting rows for Org A...
+SUCCESS: Org A's calendar synced into a real, correctly-scoped Meeting row.
+
+Test 4: Verifying the watermark advances after a successful poll...
+SUCCESS: last_synced_at watermark advanced after successful sync.
+
+Test 5: Verifying repeated polling does not create duplicate meetings...
+SUCCESS: Re-polling the same event updated the existing row instead of duplicating.
+
+Test 6: Verifying a provider failure for Org A does not block Org B's independent sync...
+SUCCESS: Org A's provider failure was isolated; Org B synced successfully and independently.
+
+Test 7: Verifying an expired Calendar OAuth token raises a distinct auth failure...
+SUCCESS: Expired token correctly raised PermissionError; no data synced, watermark untouched.
+
+Test 8: Verifying tenant isolation between Org A's and Org B's meetings...
+SUCCESS: Org A and Org B meeting data remained fully isolated.
+
+Test 9: Verifying the distributed lock prevents overlapping poll cycles...
+SUCCESS: Distributed lock correctly serializes poller cycles across instances.
+
+Test 10: Running one real _calendar_poller_loop cycle end-to-end, checking logs for leaked secrets...
+[32m2026-08-12 19:55:16.165[0m | [1mINFO    [0m | [36mapp.workers.event_worker[0m:[36m_calendar_poller_loop[0m:[36m100[0m - [1mCalendar poller: cycle starting.[0m
+[32m2026-08-12 19:55:16.171[0m | [1mINFO    [0m | [36mapp.workers.event_worker[0m:[36m_calendar_poller_loop[0m:[36m103[0m - [1mCalendar poller: discovered 3 active Google Calendar integration(s).[0m
+[32m2026-08-12 19:55:16.172[0m | [1mINFO    [0m | [36mapp.workers.event_worker[0m:[36m_calendar_poller_loop[0m:[36m106[0m - [1mCalendar poller: starting sync for organization bb02a231-8786-4cbe-98d9-1812af89b82c (integration 2d5a7f5e-cd5c-4e59-87e6-9f32b2384d46).[0m
+[32m2026-08-12 19:55:16.182[0m | [33m[1mWARNING [0m | [36mapp.workers.event_worker[0m:[36m_calendar_poller_loop[0m:[36m112[0m - [33m[1mCalendar poller: organization bb02a231-8786-4cbe-98d9-1812af89b82c skipped -- Calendar OAuth token expired, re-authorization required.[0m
+[32m2026-08-12 19:55:16.183[0m | [1mINFO    [0m | [36mapp.workers.event_worker[0m:[36m_calendar_poller_loop[0m:[36m106[0m - [1mCalendar poller: starting sync for organization 1e618591-c3b5-40f4-8de5-b972a64683af (integration 8567d2db-f9db-4dcc-9395-f11a611fab39).[0m
+[32m2026-08-12 19:55:16.573[0m | [1mINFO    [0m | [36mapp.workers.event_worker[0m:[36m_calendar_poller_loop[0m:[36m110[0m - [1mCalendar poller: organization 1e618591-c3b5-40f4-8de5-b972a64683af synced successfully -- {'ace83409-3f32-45e0-b38a-d061266d87d3': 1}.[0m
+[32m2026-08-12 19:55:16.573[0m | [1mINFO    [0m | [36mapp.workers.event_worker[0m:[36m_calendar_poller_loop[0m:[36m106[0m - [1mCalendar poller: starting sync for organization a6f4faea-7465-43d9-bf9c-f9d45af7b736 (integration f21d340e-95cf-470d-94e1-170e13163d7c).[0m
+[32m2026-08-12 19:55:16.969[0m | [1mINFO    [0m | [36mapp.workers.event_worker[0m:[36m_calendar_poller_loop[0m:[36m110[0m - [1mCalendar poller: organization a6f4faea-7465-43d9-bf9c-f9d45af7b736 synced successfully -- {'c90ed993-87a7-4d45-a77e-5fd5ed33078b': 1}.[0m
+[32m2026-08-12 19:55:16.970[0m | [1mINFO    [0m | [36mapp.workers.event_worker[0m:[36m_calendar_poller_loop[0m:[36m116[0m - [1mCalendar poller: cycle complete.[0m
+SUCCESS: Full poller cycle ran with correct structured logging and no leaked credential material.
+
+Cleaning up Calendar poller test database entries...
+Cleanup completed.
+
+All Calendar Background Poller tests completed successfully!
+PASSED: Phase 33: Google Calendar Background Poller (implementation_roadmap.md Milestone 10, 15-min cadence)
+
+---> Running QA Suite: Phase 34: Third-Party OAuth Access-Token Refresh (Google/GitHub/Jira, centralized in get_valid_oauth_token)
+Initializing Third-Party OAuth Token Refresh validation tests...
+
+Test 1: Verifying a valid access token is returned without triggering a refresh...
+SUCCESS: Valid token returned directly; no provider call made.
+
+Test 2: Verifying an expired Google token refreshes successfully...
+SUCCESS: Expired Google token refreshed; new access token returned.
+
+Test 3: Verifying the new access token is encrypted at rest...
+SUCCESS: New access token stored encrypted; decrypts to the correct value.
+
+Test 4: Verifying the existing refresh token is preserved when the provider doesn't rotate it...
+SUCCESS: Existing (unrotated) refresh token correctly preserved, still encrypted.
+
+Test 5: Verifying refresh-token rotation for providers that reissue one (GitHub, Jira)...
+SUCCESS: GitHub and Jira refresh-token rotation correctly persisted.
+
+Test 7: Verifying a revoked refresh token raises a clear authentication failure...
+SUCCESS: Revoked refresh token correctly raised PermissionError without leaking the token value.
+
+Test 8: Verifying a missing refresh token is handled without attempting a provider call...
+SUCCESS: Missing refresh token correctly handled with no provider call attempted.
+
+Test 9: Verifying Slack (no refresh-token support in this OAuth model) is handled correctly...
+SUCCESS: Slack correctly falls back to 'no refresh token available' rather than a fabricated refresh flow.
+
+Test 11: Verifying concurrent refresh attempts are serialized by the distributed lock...
+SUCCESS: Concurrent refresh attempts correctly serialized; provider called exactly once.
+
+Test 12: Verifying tenant isolation between two organizations' tokens...
+SUCCESS: Tenant isolation verified; an unrelated organization resolves to no token.
+
+Test 13: Verifying Calendar sync automatically benefits from transparent token refresh...
+SUCCESS: sync_calendar_events transparently refreshed the expired token and completed successfully.
+
+Test 16: Verifying no plaintext token values leak into logs during a refresh...
+SUCCESS: No plaintext credential material appeared in logs during token refresh.
+
+Cleaning up OAuth token refresh test database entries...
+Cleanup completed.
+
+All Third-Party OAuth Token Refresh tests completed successfully!
+PASSED: Phase 34: Third-Party OAuth Access-Token Refresh (Google/GitHub/Jira, centralized in get_valid_oauth_token)
+
+---> Running QA Suite: Phase 35: Jira Projects List (api_contract.md 5.A, real REST API v3, paginated)
+Initializing Jira Projects List (api_contract.md 5.A) validation tests...
+Test org and user created. Org=41324bd1-6e41-42ae-a234-c9b129e4b527
+
+Test 1: Verifying the endpoint requires authentication...
+SUCCESS: Unauthenticated request correctly rejected with 401.
+
+Test 2: Verifying real project data is fetched across multiple paginated pages...
+SUCCESS: Fetched real project data across 2 paginated pages.
+
+Test 3: Verifying the response matches the documented schema exactly...
+SUCCESS: Response matches the documented api_contract.md schema exactly.
+
+Test 4: Verifying no credential material appears in the response...
+SUCCESS: No credential material present in the response body.
+
+Test 5: Verifying a Jira API failure is surfaced safely, not papered over with fake data...
+SUCCESS: Jira API failure correctly surfaced as 502, no fabricated project data returned.
+
+Test 6: Verifying missing Jira credentials produce a clean 400...
+SUCCESS: Missing Jira credentials correctly rejected with 400.
+
+Cleaning up Jira projects list test database entries...
+Cleanup completed.
+
+All Jira Projects List tests completed successfully!
+PASSED: Phase 35: Jira Projects List (api_contract.md 5.A, real REST API v3, paginated)
+
+---> Running QA Suite: Phase 36: Real-Time Integration Connection Status (implementation_roadmap.md Milestone 6, authenticated WebSocket)
+Initializing Real-Time Integration Connection Status validation tests...
+
+Test 1: Verifying initial status for a fully disconnected organization...
+SUCCESS: Fresh organization correctly reports every provider as disconnected.
+
+Test 2: Verifying the status endpoint requires authentication...
+SUCCESS: Unauthenticated request correctly rejected with 401.
+
+Test 3: Verifying a successful OAuth connection broadcasts 'connected' with no leaked credentials...
+SUCCESS: OAuth connection broadcast 'connected' with no credential material, scoped to the correct org.
+SUCCESS: Status endpoint reflects the newly-connected GitHub integration.
+
+Test 4: Verifying revocation broadcasts 'disconnected'...
+SUCCESS: Revocation broadcast 'disconnected'; status endpoint reflects it.
+
+Test 5: Verifying an unrefreshable expired token broadcasts 'reauth_required'...
+SUCCESS: Expired unrefreshable token broadcast 'reauth_required'; status endpoint independently agrees.
+
+Test 6: Verifying ConnectionManager never cross-delivers broadcasts between organizations...
+SUCCESS: ConnectionManager correctly isolated the broadcast to org A only; org B received nothing.
+
+Cleaning up realtime integration status test database entries...
+Cleanup completed.
+
+All Real-Time Integration Connection Status tests completed successfully!
+PASSED: Phase 36: Real-Time Integration Connection Status (implementation_roadmap.md Milestone 6, authenticated WebSocket)
+
+---> Running QA Suite: Phase 37: Connection Center OAuth (Slack/Jira/Google Calendar, generic OAuth endpoints)
+Initializing Connection Center OAuth (Slack/Jira/Google Calendar) validation tests...
+
+Test 1: Verifying the generic OAuth authorize endpoint works for google_calendar...
+SUCCESS: google_calendar authorize URL generated with no leaked client secret.
+
+Test 2: Verifying the generic OAuth callback connects google_calendar and status reflects it...
+SUCCESS: google_calendar connected via the generic OAuth flow; status reflects it with no leaked tokens.
+
+Test 3: Verifying Org B's status is unaffected by Org A's Calendar connection...
+SUCCESS: Org B correctly isolated from Org A's Calendar connection.
+
+Test 4: Verifying the generic revoke endpoint disconnects google_calendar...
+SUCCESS: google_calendar correctly disconnected via the generic revoke endpoint.
+
+Test 5: Verifying Jira status reflects global config, not a stray per-org OAuthToken row...
+SUCCESS: Jira status correctly reflects only the global deployment configuration.
+
+Cleaning up Connection Center OAuth test database entries...
+Cleanup completed.
+
+All Connection Center OAuth tests completed successfully!
+PASSED: Phase 37: Connection Center OAuth (Slack/Jira/Google Calendar, generic OAuth endpoints)
+
+---> Running QA Suite: Phase 38: Project/Task Cross-Tenant Isolation (IDOR fix on workspace_id/project_id trust)
+Initializing Project/Task Cross-Tenant Isolation validation tests...
+Test orgs and authenticated users created. Org A=fe793978-5ade-4253-aa1f-5e55ef4e3245 Org B=f4279cc0-9280-4ab9-8b43-c3800678e683
+SUCCESS: Org A created its own workspace, project, and task via the API (happy path).
+
+Test 1: Verifying Org B cannot create a project under Org A's workspace...
+SUCCESS: Org B correctly rejected (404) when targeting Org A's workspace.
+
+Test 2: Verifying Org B cannot list Org A's workspace's projects...
+SUCCESS: Org B correctly rejected (404) when listing Org A's workspace's projects.
+
+Test 3: Verifying Org B cannot fetch Org A's project by ID...
+SUCCESS: Org B correctly rejected (404) when fetching Org A's project directly.
+
+Test 4: Verifying Org B cannot create a task under Org A's project...
+SUCCESS: Org B correctly rejected (404) when creating a task under Org A's project.
+
+Test 5: Verifying Org B cannot list Org A's project's tasks...
+SUCCESS: Org B correctly rejected (404) when listing Org A's project's tasks.
+
+Test 6: Verifying Org B cannot update Org A's task...
+SUCCESS: Org B correctly rejected (404) when updating Org A's task; task left unmodified.
+
+Test 7: Verifying Org A retains full access to its own resources...
+SUCCESS: Org A retains full, correct access to its own workspace/project/task.
+
+Cleaning up tenant isolation test database entries...
+Cleanup completed.
+
+All Project/Task Cross-Tenant Isolation tests completed successfully!
+PASSED: Phase 38: Project/Task Cross-Tenant Isolation (IDOR fix on workspace_id/project_id trust)
+
+---> Running QA Suite: Phase 39: Analytics Cross-Tenant Isolation (Executive Overview dashboard endpoints)
+Initializing Analytics Cross-Tenant Isolation validation tests...
+Test orgs, project, and task created. Org A=14493d20-7fdf-4541-930a-8482a9d3ed50 Org B=6a43d76c-6388-4edd-9619-4f332853d0a5 Project A=70038c95-ff91-4ba9-94bc-9512b37a29d6
+
+Test 1: Verifying Org A can read its own project's sprint analytics...
+SUCCESS: Org A retrieved its own real sprint analytics.
+
+Test 2: Verifying Org B cannot read Org A's sprint analytics...
+SUCCESS: Org B correctly rejected (404) reading Org A's sprint analytics.
+
+Test 3: Verifying Org B cannot read Org A's burndown chart...
+SUCCESS: Org B correctly rejected (404) reading Org A's burndown chart.
+
+Test 4: Verifying Org B cannot read Org A's completion forecast...
+SUCCESS: Org B correctly rejected (404) reading Org A's completion forecast.
+
+Test 5: Verifying Org A's own burndown/forecast endpoints still work...
+SUCCESS: Org A retains full working access to its own analytics endpoints.
+
+Cleaning up analytics tenant isolation test database entries...
+Cleanup completed.
+
+All Analytics Cross-Tenant Isolation tests completed successfully!
+PASSED: Phase 39: Analytics Cross-Tenant Isolation (Executive Overview dashboard endpoints)
+
+---> Running QA Suite: Phase 40: Agent Execution Cross-Tenant Isolation (GET/transition executions IDOR fix)
+Initializing Agent Execution Cross-Tenant Isolation validation tests...
+Test orgs and authenticated users created. Org A=57fb959b-ac68-4517-ae90-8ea5d7e7fc2d Org B=370ff1c2-98e9-44aa-9bf0-f4bc0e84a9a8
+SUCCESS: Org A executed a real agent persona. Execution ID: d7636739-2d01-4333-ac57-b5eff68c684e
+
+Test 1: Verifying Org A can retrieve its own execution...
+SUCCESS: Org A retrieved its own real execution log.
+
+Test 2: Verifying Org B cannot retrieve Org A's execution...
+SUCCESS: Org B correctly rejected (404) with no leaked execution data.
+
+Test 3: Verifying Org B cannot transition Org A's execution state...
+SUCCESS: Org B correctly rejected (404); Org A's execution state left unmodified.
+
+Test 4: Verifying a nonexistent execution_id returns the documented 404...
+SUCCESS: Nonexistent execution_id correctly returns the documented 404.
+
+Test 5: Verifying Org A can still transition its own execution...
+SUCCESS: Org A retains full, correct access to its own executions.
+
+Cleaning up agent execution tenant isolation test database entries...
+Cleanup completed.
+
+All Agent Execution Cross-Tenant Isolation tests completed successfully!
+PASSED: Phase 40: Agent Execution Cross-Tenant Isolation (GET/transition executions IDOR fix)
+
+---> Running QA Suite: Phase 41: Workflow Execution Cross-Tenant Isolation (GET /workflows/executions IDOR fix)
+Initializing Workflow Execution Cross-Tenant Isolation validation tests...
+Test orgs and authenticated users created. Org A=1fd18c93-234c-4fa4-82e5-76abcdffe23e Org B=62340bd9-cd78-4c6d-9077-04ef8a76823f
+SUCCESS: Org A executed a real workflow DAG. Execution ID: 07572948-f031-47a9-b55d-71c0139f7091
+
+Test 2: Verifying Org A can retrieve its own execution...
+SUCCESS: Org A retrieved its own real workflow execution.
+
+Test 3: Verifying Org B cannot retrieve Org A's workflow execution...
+SUCCESS: Org B correctly rejected (404) with no leaked execution data.
+
+Test 4: Verifying a nonexistent execution_id returns the same documented 404...
+SUCCESS: Nonexistent execution_id correctly returns the documented 404.
+
+Test 5: Verifying Org A's own access still works after the fix...
+SUCCESS: Org A retains full working access to its own workflow execution.
+
+Cleaning up workflow execution tenant isolation test database entries...
+Cleanup completed.
+
+All Workflow Execution Cross-Tenant Isolation tests completed successfully!
+PASSED: Phase 41: Workflow Execution Cross-Tenant Isolation (GET /workflows/executions IDOR fix)
+
+---> Running QA Suite: Phase 42: Memory & Context Cross-Tenant Isolation (client-supplied organization_id IDOR fix, incl. context_search tool)
+Initializing Memory & Context Cross-Tenant Isolation validation tests...
+Test orgs and authenticated users created. Org A=13357249-b1f2-433d-9b39-d3413321c621 Org B=b21cc160-6d25-4cd9-9cbc-5a736170a560
+SUCCESS: Org A stored a real long-term memory. Memory ID: 627c349e-e2fc-4efe-bb65-1f0df47f0d22
+
+Test 2: Verifying Org A can recall its own memory...
+SUCCESS: Org A recalled its own memory by key.
+
+Test 3: Verifying Org A can search its own long-term memory...
+SUCCESS: Org A's search surfaced its own memory.
+
+Test 4: Verifying Org B cannot recall Org A's memory by key...
+SUCCESS: Org B correctly rejected (404) with no leaked memory data.
+
+Test 5: Verifying Org B's search never surfaces Org A's memory content...
+SUCCESS: Org B's search returned zero results referencing Org A's memory.
+
+Test 6: Verifying a spoofed organization_id cannot redirect memory writes...
+SUCCESS: Spoofed organization_id had no effect; memory was correctly written under Org B.
+
+Test 7: Verifying Org A retains full working access after the fix...
+SUCCESS: Org A retains full working access to its own memory.
+SUCCESS: Org A indexed real context content. Chunks: 1
+
+Test 8: Verifying Org A can search its own context via the direct API...
+SUCCESS: Org A's direct API context search surfaced its own content.
+
+Test 9: Verifying Org B's direct API context search cannot see Org A's content...
+SUCCESS: Org B's direct API context search returned no Org A content.
+
+Test 10: Verifying the context_search TOOL cannot be used to read Org A's context via a spoofed organization_id...
+SUCCESS: context_search tool call with a spoofed organization_id was safely overridden -- zero Org A results leaked.
+
+Test 11: Verifying Org A can still use the context_search tool for its own data...
+SUCCESS: Org A's own context_search tool call still works correctly.
+
+Test 12: Verifying Org A's direct API context search still works...
+SUCCESS: Org A retains full working access to its own context.
+
+Cleaning up memory/context tenant isolation test database entries...
+Cleanup completed.
+
+All Memory & Context Cross-Tenant Isolation tests completed successfully!
+PASSED: Phase 42: Memory & Context Cross-Tenant Isolation (client-supplied organization_id IDOR fix, incl. context_search tool)
+
+---> Running QA Suite: Phase 43: Planning Cross-Tenant Isolation (GET /planning/plans & POST /planning/execute plan_id IDOR fix)
+Initializing Planning Cross-Tenant Isolation validation tests...
+Test orgs and authenticated users created. Org A=b091b0a1-41ba-441a-a28f-9a0c872e1218 Org B=b3e63ff6-e7c4-4d7e-a4a6-a69d8f02c253
+SUCCESS: Org A generated a real plan. Plan ID: 532427c6-3dbc-48fc-986b-50da87b2173c
+
+Test 1: Verifying Org A can retrieve its own plan...
+SUCCESS: Org A retrieved its own real plan.
+
+Test 2: Verifying Org B cannot retrieve Org A's plan...
+SUCCESS: Org B correctly rejected (404) with no leaked plan data.
+
+Test 3: Verifying a nonexistent plan_id returns the same documented 404...
+SUCCESS: Nonexistent plan_id correctly returns the documented 404.
+
+Test 4: Verifying Org B cannot execute Org A's plan via a supplied plan_id...
+SUCCESS: Org B correctly rejected when attempting to execute Org A's plan.
+
+Test 5: Verifying Org A's plan was not mutated by Org B's rejected attempt...
+SUCCESS: Org A's plan status left unmodified.
+
+Test 6: Verifying Org A can still execute its own plan...
+SUCCESS: Org A's own plan_id-based execution still works correctly.
+
+Test 7: Verifying Org A retains full working access after the fix...
+SUCCESS: Org A retains full working access to its own plan.
+
+Cleaning up planning tenant isolation test database entries...
+Cleanup completed.
+
+All Planning Cross-Tenant Isolation tests completed successfully!
+PASSED: Phase 43: Planning Cross-Tenant Isolation (GET /planning/plans & POST /planning/execute plan_id IDOR fix)
+
+---> Running QA Suite: Phase 44: Notifications API (PUT /notifications/read, api_contract.md section 16.A, per-user tenant isolation)
+Initializing Notifications API validation tests...
+Test orgs/users created. Org A=6cfb3fcd-84ef-4100-b1eb-5b7468912173 (user1=cb04fd3b-9d2d-44a9-9bb8-cec9239acd85, user2=11b184ee-7bf5-4256-87b4-7c84e15ae35c) Org B=23c2808f-6fe6-4ab0-9a59-6675dd2a9569 (user=a5ff4428-1c72-4f47-b66f-27ed4b89bf9a)
+
+Test 1: Verifying Org B cannot mark Org A's notification as read...
+SUCCESS: Org B's attempt updated zero notifications.
+SUCCESS: Org A's notification remains unread after Org B's rejected attempt.
+
+Test 2: Verifying a same-org, different user cannot mark another user's notification as read...
+SUCCESS: Same-org, different-user attempt updated zero notifications; notification remains unread.
+
+Test 3: Verifying the owning user can mark their own notifications as read...
+SUCCESS: Owning user marked both of their own notifications as read.
+SUCCESS: Both notifications are persisted as read in the database.
+
+Test 4: Verifying a nonexistent notification_id is handled gracefully...
+SUCCESS: Nonexistent notification_id handled gracefully with no error.
+
+Cleaning up notifications test database entries...
+Cleanup completed.
+
+All Notifications API tests completed successfully!
+PASSED: Phase 44: Notifications API (PUT /notifications/read, api_contract.md section 16.A, per-user tenant isolation)
+
+---> Running QA Suite: Phase 45: Recommendations API (GET /recommendations, api_contract.md section 12.A, persisted via ProjectIntelligenceEngine)
+Initializing Recommendations API validation tests...
+Test orgs/project created. Org A=3ddf4f78-c9b1-4f6b-a9c8-14c34ad9eb84 Project A=83fb361f-5c9f-429c-beb7-a34a5938a30e Org B=d587fe81-2dfa-422b-80ad-7872510570ea
+
+Test 1: Verifying an empty recommendations list before generation...
+SUCCESS: Empty recommendations list returned correctly.
+
+Test 2: Generating real recommendations via POST /planning/intelligence...
+SUCCESS: Intelligence pipeline generated 1 recommendation(s).
+SUCCESS: 1 recommendation(s) persisted under Org A with correct organization_id/project_id.
+
+Test 3: Verifying Org A can retrieve its own recommendations...
+SUCCESS: Org A retrieved its own recommendations with the documented response schema.
+
+Test 4: Verifying Org B cannot see Org A's recommendations...
+SUCCESS: Org B sees zero recommendations; no Org A content leaked.
+
+Test 5: Verifying the status filter works as documented...
+SUCCESS: status filter correctly narrows results.
+
+Test 6: Verifying the type filter works as documented...
+SUCCESS: type filter correctly narrows results; unknown type returns empty, not an error.
+
+Test 7: Verifying combined status+type filters work together...
+SUCCESS: Combined status+type filters work correctly.
+
+Test 8: Verifying repeated generation does not create duplicate active recommendations...
+SUCCESS: Repeated generation did not create duplicate recommendation records.
+
+Cleaning up recommendations test database entries...
+Cleanup completed.
+
+All Recommendations API tests completed successfully!
+PASSED: Phase 45: Recommendations API (GET /recommendations, api_contract.md section 12.A, persisted via ProjectIntelligenceEngine)
+
+---> Running QA Suite: Phase 46: Event Bus Replay (POST /events/replay, api_contract.md section 9.A, OrgAdmin-gated, tenant-isolated)
+Initializing Event Bus Replay validation tests...
+Test orgs/admins/event created. Org A=4f7903b5-95bb-45b1-9611-6454074582fd Org B=357e9e8f-de8e-445f-8ff4-564d2973407b Event=b38af1bb-4dfc-488e-9f78-d220ac998be0
+
+Test 1: Verifying a Developer-role user is denied POST /events/replay (403)...
+SUCCESS: Developer-role user correctly denied (403).
+
+Test 2: Verifying Org B's OrgAdmin cannot replay Org A's event...
+SUCCESS: Org B's replay matched zero of Org A's events.
+
+Test 3: Verifying Org A's OrgAdmin can replay its own event...
+SUCCESS: Org A's replay matched and re-published its own event; subscriber received it.
+
+Test 4: Verifying a non-matching routing_key_pattern returns zero matches...
+SUCCESS: Non-matching pattern correctly returned zero matches.
+
+Test 5: Verifying the replay action was audit-logged...
+SUCCESS: 2 'events:replay' audit log entr(y/ies) recorded for Org A.
+
+Cleaning up event replay test database entries...
+Cleanup completed.
+
+All Event Bus Replay tests completed successfully!
+PASSED: Phase 46: Event Bus Replay (POST /events/replay, api_contract.md section 9.A, OrgAdmin-gated, tenant-isolated)
+
+---> Running QA Suite: Phase 47: Project Unified Knowledge Graph (GET /context/projects/{id}/graph, api_contract.md section 8.A, tenant-isolated)
+Initializing Project Unified Knowledge Graph validation tests...
+Test orgs/project/edge created. Org A=6e64373c-b245-4756-abd7-518b91362c15 Project A=90ca3107-196f-4598-9d40-64abc17caee2 Org B=efe64027-98c5-4027-bacb-7323f6c59b63
+
+Test 1: Verifying Org A can retrieve its own project graph...
+SUCCESS: Org A retrieved its own real project knowledge graph.
+
+Test 2: Verifying Org B cannot retrieve Org A's project graph...
+SUCCESS: Org B correctly rejected (404) with no leaked graph data.
+
+Test 3: Verifying a nonexistent project_id returns the same documented 404...
+SUCCESS: Nonexistent project_id correctly returns the documented 404.
+
+Test 4: Verifying Org A retains full working access...
+SUCCESS: Org A retains full working access to its own project graph.
+
+Cleaning up project knowledge graph test database entries...
+Cleanup completed.
+
+All Project Unified Knowledge Graph tests completed successfully!
+PASSED: Phase 47: Project Unified Knowledge Graph (GET /context/projects/{id}/graph, api_contract.md section 8.A, tenant-isolated)
+
+---> Running QA Suite: Phase 48: IntegrationService Audit Logging Hardening (oauth:connect/disconnect/reauth_required, repository:link, slack:channel_map)
+Initializing IntegrationService Audit Logging validation tests...
+Test orgs/admins/project created. Org A=b9fbcc87-a864-4db1-9af0-d624eb8cebb2 Org B=a5a43d97-0f2c-48d7-b1b0-18499ac15225 Project A=e8a0a6bb-c358-4f22-b775-0f33b2c39723
+
+Test 1: Verifying OAuth grant (exchange_code_for_token) creates an 'oauth:connect' audit event...
+SUCCESS: 'oauth:connect' audit event recorded with correct organization/actor/provider.
+
+Test 2: Verifying repository linking creates a 'repository:link' audit event...
+SUCCESS: 'repository:link' audit event recorded without leaking the credential-bearing clone_url.
+
+Test 3: Verifying Slack channel mapping creates a 'slack:channel_map' audit event...
+SUCCESS: 'slack:channel_map' audit event recorded correctly.
+
+Test 4: Verifying OAuth refresh failure creates an 'oauth:reauth_required' audit event...
+SUCCESS: 'oauth:reauth_required' audit event recorded without leaking the revoked refresh token.
+
+Test 5: Verifying OAuth revoke creates an 'oauth:disconnect' audit event...
+SUCCESS: 'oauth:disconnect' audit event recorded correctly.
+
+Test 6: Verifying NO credential material appears in any audit record from this flow...
+SUCCESS: All 5 audit records from this flow contain zero credential material.
+
+Test 11: Verifying Org B cannot see Org A's integration audit records...
+SUCCESS: Org B sees none of Org A's integration audit records or credential material.
+
+Test 12: Verifying Org A's own admin can see its own integration audit trail...
+SUCCESS: Org A's admin retains full visibility into its own integration audit trail.
+
+Cleaning up integration audit logging test database entries...
+Cleanup completed.
+
+All IntegrationService Audit Logging tests completed successfully!
+PASSED: Phase 48: IntegrationService Audit Logging Hardening (oauth:connect/disconnect/reauth_required, repository:link, slack:channel_map)
+
+---> Running QA Suite: Phase 49: Agent/Workflow Execution Project Ownership (cross-tenant project_id attachment fix in AgentService.execute_agent)
+Initializing Agent/Workflow Execution Project Ownership validation tests...
+Test orgs created. Org A=2a59d0ce-efb7-4e42-a415-241fb2c1d018 Org B=efc1041d-5ce6-4060-90f1-74f99caafb88
+
+Test 1: Verifying Org A's agent execution auto-creates the demo project under its own org...
+SUCCESS: Demo project auto-created and correctly owned by Org A.
+
+Test 2: Verifying Org B cannot attach Org A's project to its own execution...
+SUCCESS: Org B correctly rejected (400) when attempting to reuse Org A's project_id.
+
+Test 3: Verifying Org B's rejected attempt created no execution record...
+SUCCESS: No execution record was created for Org B's rejected attempt.
+
+Test 4: Verifying Org A retains full working access to its own project...
+SUCCESS: Org A's own repeated use of its project_id still works correctly.
+
+Test 5: Verifying Org B cannot attach Org A's project via POST /workflows/execute...
+SUCCESS: Org B correctly rejected (400) attempting to reuse Org A's project_id via a workflow execution.
+
+Cleaning up agent execution project ownership test database entries...
+Cleanup completed.
+
+All Agent/Workflow Execution Project Ownership tests completed successfully!
+PASSED: Phase 49: Agent/Workflow Execution Project Ownership (cross-tenant project_id attachment fix in AgentService.execute_agent)
+
+---> Running QA Suite: Phase 50: Calendar Meetings Read API (GET /integrations/calendar/meetings, database_schema_design.md section 19, ui_ux_design.md section 10, tenant-isolated)
+Initializing Calendar Meetings Read API validation tests...
+Test orgs/workspaces/projects created. Org A=1f8f065b-32b8-458a-a4f1-b98eaa289302 Org B=49a77dc4-dfe4-4da2-849e-983331672986
+Seed sync completed: 2 real Meeting rows persisted for Project A.
+
+Test 1: Verifying Org A can list its own project's synced meetings...
+SUCCESS: Org A retrieved 2 real synced meetings in chronological order.
+
+Test 2: Verifying a project with no synced meetings returns an empty list...
+SUCCESS: Empty meetings list correctly returned for an unsynced project.
+
+Test 3: Verifying cross-tenant meetings read is rejected...
+SUCCESS: Org B correctly rejected (404) when attempting to read Org A's meetings.
+
+Test 4: Verifying a nonexistent project_id returns 404...
+SUCCESS: Nonexistent project_id correctly returns 404.
+
+Test 5: Verifying an unauthenticated request is rejected...
+SUCCESS: Unauthenticated request correctly rejected (401).
+
+Cleaning up calendar meetings read test database entries...
+Cleanup completed.
+
+All Calendar Meetings Read API tests completed successfully!
+PASSED: Phase 50: Calendar Meetings Read API (GET /integrations/calendar/meetings, database_schema_design.md section 19, ui_ux_design.md section 10, tenant-isolated)
+
+---> Running QA Suite: Phase 51: Recommendation Actions API (POST /recommendations/{id}/action, implementation_roadmap.md Milestone 15, ui_ux_design.md section 13, tenant-isolated)
+Initializing Recommendation Actions API validation tests...
+Test orgs/project created. Org A=1ba22978-e34e-4105-a1c4-1e50c14533ff Project A=70456b86-27fa-48a8-88d0-6b51a70e80db Org B=619b95b1-017f-4bb4-a5f5-3f78ae6d8ce2
+SUCCESS: Seeded 1 real recommendation(s) via the production pipeline. Using id=8bcc910a-38b7-4721-9a4a-d00d79026a92.
+
+Test 1: Verifying 'dismiss' action transitions status and logs feedback...
+SUCCESS: Recommendation status transitioned to 'dismissed'.
+SUCCESS: Status persisted and audit feedback log entry created.
+
+Test 2: Verifying the dismissed recommendation now appears under ?status=dismissed...
+SUCCESS: GET /recommendations?status=dismissed reflects the transition.
+
+Test 3: Verifying 'accept' action transitions status to 'accepted'...
+SUCCESS: Recommendation status transitioned to 'accepted'.
+
+Test 4: Verifying an unsupported action value returns 400...
+SUCCESS: Unsupported action correctly rejected with 400.
+
+Test 5: Verifying cross-tenant action is rejected...
+SUCCESS: Org B correctly rejected (404); Org A's recommendation status unchanged.
+
+Test 6: Verifying a nonexistent recommendation_id returns 404...
+SUCCESS: Nonexistent recommendation_id correctly returns 404.
+
+Test 7: Verifying an unauthenticated request is rejected...
+SUCCESS: Unauthenticated request correctly rejected (401).
+
+Cleaning up recommendation actions test database entries...
+Cleanup completed.
+
+All Recommendation Actions API tests completed successfully!
+PASSED: Phase 51: Recommendation Actions API (POST /recommendations/{id}/action, implementation_roadmap.md Milestone 15, ui_ux_design.md section 13, tenant-isolated)
+
+========================================================================
+        MASTER QA REGRESSION SUMMARY                                    
+        Suites Passed: 65 / 65                        
+        Execution Time: 62.68 seconds                             
+========================================================================

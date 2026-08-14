@@ -17,6 +17,7 @@ class Project(Base, SoftDeleteMixin):
     workspace = relationship("Workspace", back_populates="projects")
     tasks = relationship("ProjectTask", back_populates="project", cascade="all, delete-orphan")
     repositories = relationship("Repository", back_populates="project", cascade="all, delete-orphan")
+    slack_channel_mappings = relationship("SlackChannelMapping", back_populates="project", cascade="all, delete-orphan")
     context_snapshots = relationship("ContextSnapshot", back_populates="project", cascade="all, delete-orphan")
     knowledge_graph_edges = relationship("KnowledgeGraphEdge", back_populates="project", cascade="all, delete-orphan")
     agent_memories = relationship("AgentMemory", back_populates="project", cascade="all, delete-orphan")
@@ -52,6 +53,16 @@ class Repository(Base):
 
     # Relationships
     project = relationship("Project", back_populates="repositories")
+
+class SlackChannelMapping(Base):
+    __tablename__ = "slack_channel_mappings"
+
+    organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    project_id = Column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    slack_channel_id = Column(String(50), nullable=False, unique=True, index=True)
+
+    # Relationships
+    project = relationship("Project", back_populates="slack_channel_mappings")
 
 class Meeting(Base):
     __tablename__ = "meetings"

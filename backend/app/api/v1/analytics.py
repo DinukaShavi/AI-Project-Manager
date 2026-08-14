@@ -1,19 +1,33 @@
 from uuid import UUID
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.api.deps import get_db
-from app.models.project import ProjectTask
+from app.api.deps import get_db, get_current_user
+from app.models.project import Project, ProjectTask
+from app.models.tenant import User
 from app.services.analytics import AnalyticsService
 
 router = APIRouter()
 
+async def _verify_project_ownership(db: AsyncSession, project_id: UUID, organization_id) -> None:
+    """Shared tenant-ownership guard for every analytics endpoint below -- each one reads
+    ProjectTask rows by project_id alone, so without this check any authenticated user
+    could read another organization's sprint metrics by guessing a project_id (the same
+    class of defect fixed in projects.py/tasks.py)."""
+    res = await db.execute(
+        select(Project).where(Project.id == project_id, Project.organization_id == organization_id, Project.deleted_at == None)
+    )
+    if not res.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found in this organization.")
+
 @router.get("/sprint", status_code=status.HTTP_200_OK)
 async def get_sprint_analytics(
     project_id: UUID,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Calculate sprint velocity, story points completion rate, and delivery risk index."""
+    await _verify_project_ownership(db, project_id, current_user.organization_id)
     res = await db.execute(select(ProjectTask).where(ProjectTask.project_id == project_id, ProjectTask.deleted_at == None))
     tasks = res.scalars().all()
 
@@ -49,9 +63,11 @@ async def get_burndown_chart(
     project_id: UUID,
     total_days: int = 14,
     elapsed_days: int = 7,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Retrieve ideal vs actual burndown chart trajectory data."""
+    await _verify_project_ownership(db, project_id, current_user.organization_id)
     service = AnalyticsService(db)
     return await service.get_burndown_chart(project_id, total_days=total_days, elapsed_days=elapsed_days)
 
@@ -60,8 +76,10 @@ async def predict_completion(
     project_id: UUID,
     elapsed_days: int = 7,
     total_sprint_days: int = 14,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
     """Predict sprint completion date, delay probability, and risk assessment."""
+    await _verify_project_ownership(db, project_id, current_user.organization_id)
     service = AnalyticsService(db)
     return await service.predict_completion_forecast(project_id, elapsed_days=elapsed_days, total_sprint_days=total_sprint_days)

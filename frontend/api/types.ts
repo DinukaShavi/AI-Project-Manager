@@ -7,13 +7,104 @@ export interface User {
   full_name: string;
   avatar_url?: string;
   organization_id?: string;
-  role?: string;
+  roles?: string[];
+}
+
+export interface RoleAssignRequest {
+  role_name: string;
+}
+
+// Organization Settings
+export interface OrganizationSettings {
+  organization_id: string;
+  name: string;
+  domain?: string;
+  allowed_email_domains: string[];
+  created_at: string;
+}
+
+export interface OrganizationMember {
+  id: string;
+  email: string;
+  full_name: string;
+  roles: string[];
+}
+
+export interface OrganizationMembersResponse {
+  members_count: number;
+  members: OrganizationMember[];
+}
+
+// Organization creation & team invitations
+export interface CreateOrganizationRequest {
+  organization_name: string;
+  admin_email: string;
+  admin_full_name: string;
+  admin_password: string;
+  domain?: string;
+}
+
+export interface CreateOrganizationResponse {
+  organization_id: string;
+  name: string;
+  domain?: string;
+  admin_user: {
+    id: string;
+    email: string;
+    full_name: string;
+    roles: string[];
+  };
+}
+
+export interface CreateInvitationRequest {
+  email: string;
+  role_name: string;
+}
+
+export interface InvitationResponse {
+  invitation_id: string;
+  email: string;
+  role: string;
+  status: string;
+  token: string;
+  expires_at: string;
+}
+
+export interface Invitation {
+  id: string;
+  email: string;
+  role: string;
+  status: string;
+  created_at: string;
+  expires_at: string;
+}
+
+export interface InvitationsListResponse {
+  invitations: Invitation[];
+}
+
+export interface AcceptInvitationRequest {
+  full_name: string;
+  password: string;
+}
+
+// External identities (Jira/GitHub/Slack/Google account <-> AI-TPM user mapping)
+export interface ExternalIdentity {
+  id: string;
+  provider: string;
+  external_account_id: string;
+  external_display_name: string | null;
+  verified_via_oauth: boolean;
+}
+
+export interface ExternalIdentitiesResponse {
+  identities: ExternalIdentity[];
 }
 
 export interface AuthResponse {
   access_token: string;
+  refresh_token: string;
   token_type: string;
-  user: User;
 }
 
 export interface LoginRequest {
@@ -33,9 +124,12 @@ export interface UserUpdateRequest {
   avatar_url?: string;
 }
 
-// Workspaces & Projects
+// Workspaces & Projects. Field names below match the real backend response shape
+// (backend/app/api/v1/workspaces.py, projects.py) exactly -- both list and create
+// responses key the id as `workspace_id`/`project_id`, never a bare `id`. `Project.workspace_id`
+// is only present on the create response, not on individual items inside a list response.
 export interface Workspace {
-  id: string;
+  workspace_id: string;
   name: string;
   organization_id: string;
   description?: string;
@@ -48,9 +142,9 @@ export interface WorkspacesResponse {
 }
 
 export interface Project {
-  id: string;
+  project_id: string;
   name: string;
-  workspace_id: string;
+  workspace_id?: string;
   description?: string;
   created_at?: string;
 }
@@ -267,18 +361,22 @@ export interface ModelRouteResponse {
 // Cost Monitoring
 export interface CostSummaryResponse {
   organization_id: string;
+  total_calls: number;
   total_cost_usd: number;
   total_prompt_tokens: number;
   total_completion_tokens: number;
-  total_cache_hits: number;
+  total_cache_hits_tokens: number;
+  cost_by_agent: Record<string, number>;
+  cost_by_model: Record<string, number>;
 }
 
 export interface CostAlertResponse {
   organization_id: string;
   alert_status: "NORMAL" | "WARNING_BUDGET_NEAR_LIMIT" | "CRITICAL_BUDGET_EXCEEDED" | string;
-  utilization_percentage: number;
+  monthly_budget_usd: number;
   current_spend_usd: number;
-  budget_limit_usd: number;
+  percentage_used: number;
+  requires_action: boolean;
 }
 
 // Knowledge Graph
@@ -286,4 +384,31 @@ export interface GraphTraverseResponse {
   start_node_id: string;
   active_outbound_edges: any[];
   total_active_edges: number;
+}
+
+// Audit Logs
+export interface AuditLogEntry {
+  id: string;
+  timestamp: string;
+  user_id?: string;
+  user_email?: string;
+  action: string;
+  details: Record<string, any>;
+  ip_address?: string;
+}
+
+export interface AuditLogListResponse {
+  total: number;
+  limit: number;
+  offset: number;
+  entries: AuditLogEntry[];
+}
+
+export interface AuditLogFilters {
+  limit?: number;
+  offset?: number;
+  action?: string;
+  user_email?: string;
+  start_date?: string;
+  end_date?: string;
 }

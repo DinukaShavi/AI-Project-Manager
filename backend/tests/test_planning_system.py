@@ -10,6 +10,7 @@ from app.models.agent import AgentPlan
 from app.planning.planner import HTNPlanner
 from app.services.planning import PlanningService
 from app.db.session import SessionLocal
+from tests._auth_helpers import create_authenticated_headers
 
 async def test_planning_system_flow():
     print("Initializing AI Planning System validation tests...")
@@ -57,19 +58,21 @@ async def test_planning_system_flow():
                 assert len(plan.plan_steps) == 3
                 print(f"SUCCESS: Plan stored in DB. ID: {plan.id}")
 
-                executed_plan, execution = await service.execute_plan(plan_id=plan.id)
+                executed_plan, execution = await service.execute_plan(plan_id=plan.id, organization_id=test_org_id)
                 assert executed_plan.status == "executed"
                 assert execution.status == "completed"
                 print("SUCCESS: Plan executed and state logged in DB.")
+
+            auth_headers = await create_authenticated_headers(client, test_org_id)
 
             # 3. Test HTTP API Endpoint: POST /api/v1/planning/plan
             print("\nTest 3: Requesting POST /api/v1/planning/plan...")
             res = await client.post(
                 "/api/v1/planning/plan",
                 json={
-                    "organization_id": str(test_org_id),
                     "goal": "Prepare Sprint 15 Release Strategy"
-                }
+                },
+                headers=auth_headers
             )
             assert res.status_code == 201, f"Plan creation failed: {res.text}"
             p_json = res.json()
@@ -80,7 +83,7 @@ async def test_planning_system_flow():
 
             # 4. Test HTTP API Endpoint: GET /api/v1/planning/plans/{plan_id}
             print("\nTest 4: Requesting GET /api/v1/planning/plans/{plan_id}...")
-            res = await client.get(f"/api/v1/planning/plans/{pid}")
+            res = await client.get(f"/api/v1/planning/plans/{pid}", headers=auth_headers)
             assert res.status_code == 200, f"Plan retrieval failed: {res.text}"
             rec_json = res.json()
             assert rec_json["goal"] == "Prepare Sprint 15 Release Strategy"
@@ -91,9 +94,9 @@ async def test_planning_system_flow():
             res = await client.post(
                 "/api/v1/planning/execute",
                 json={
-                    "organization_id": str(test_org_id),
                     "goal": "Execute Architecture Design Audit"
-                }
+                },
+                headers=auth_headers
             )
             assert res.status_code == 200, f"Plan execution failed: {res.text}"
             exec_json = res.json()
