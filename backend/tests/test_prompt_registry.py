@@ -1,11 +1,16 @@
 import asyncio
+import uuid
 from httpx import AsyncClient, ASGITransport
+from sqlalchemy import select
 from app.main import app
+from app.models.tenant import Organization, User
+from app.db.session import SessionLocal
 from app.agents.prompt_registry import (
     get_prompt_registry,
     PromptRegistry,
     PromptVersion
 )
+from tests._auth_helpers import create_authenticated_headers
 
 async def test_prompt_registry_flow():
     print("Initializing Prompt Registry, Canary A/B Router & Rollback validation tests...")
@@ -39,35 +44,60 @@ async def test_prompt_registry_flow():
     assert rollback_ver == "v1.0.0"
     print("SUCCESS: Automated rollback triggered; canary deactivated and stable v1.0.0 restored.")
 
-    # 4. Test REST API Endpoints
+    # 4. Test REST API Endpoints require real authentication (Phase 84).
     print("\nTest 4: Testing Prompt Management HTTP REST API endpoints...")
+    org_id = None
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # GET /api/v1/prompts/tpm_system_prompt
-        res_get = await client.get("/api/v1/prompts/tpm_system_prompt")
-        assert res_get.status_code == 200
-        assert res_get.json()["active_version"] == "v1.0.0"
+        try:
+            # Unauthenticated request must be rejected.
+            res_anon = await client.get("/api/v1/prompts/tpm_system_prompt")
+            assert res_anon.status_code in (401, 403), f"Expected 401/403 for unauthenticated request, got {res_anon.status_code}"
+            print("SUCCESS: Unauthenticated request correctly rejected.")
 
-        # POST /api/v1/prompts/register
-        res_reg = await client.post(
-            "/api/v1/prompts/register",
-            json={
-                "prompt_key": "tpm_system_prompt",
-                "version": "v1.2.0-canary",
-                "content": "Canary v1.2.0 test content",
-                "is_canary": True,
-                "traffic_weight": 0.50
-            }
-        )
-        assert res_reg.status_code == 201
-        assert res_reg.json()["version"] == "v1.2.0-canary"
+            async with SessionLocal() as session:
+                org = Organization(name=f"Prompt Registry Org {uuid.uuid4().hex[:6]}", domain=f"promptreg-{uuid.uuid4().hex[:6]}.com")
+                session.add(org)
+                await session.commit()
+                org_id = org.id
+            headers = await create_authenticated_headers(client, org_id)
 
-        # POST /api/v1/prompts/tpm_system_prompt/rollback
-        res_roll = await client.post("/api/v1/prompts/tpm_system_prompt/rollback?failed_version=v1.2.0-canary")
-        assert res_roll.status_code == 200
-        assert res_roll.json()["restored_version"] == "v1.0.0"
+            # GET /api/v1/prompts/tpm_system_prompt
+            res_get = await client.get("/api/v1/prompts/tpm_system_prompt", headers=headers)
+            assert res_get.status_code == 200
+            assert res_get.json()["active_version"] == "v1.0.0"
 
-        print("SUCCESS: Prompt management REST API endpoints verified.")
+            # POST /api/v1/prompts/register
+            res_reg = await client.post(
+                "/api/v1/prompts/register",
+                json={
+                    "prompt_key": "tpm_system_prompt",
+                    "version": "v1.2.0-canary",
+                    "content": "Canary v1.2.0 test content",
+                    "is_canary": True,
+                    "traffic_weight": 0.50
+                },
+                headers=headers,
+            )
+            assert res_reg.status_code == 201
+            assert res_reg.json()["version"] == "v1.2.0-canary"
+
+            # POST /api/v1/prompts/tpm_system_prompt/rollback
+            res_roll = await client.post("/api/v1/prompts/tpm_system_prompt/rollback?failed_version=v1.2.0-canary", headers=headers)
+            assert res_roll.status_code == 200
+            assert res_roll.json()["restored_version"] == "v1.0.0"
+
+            print("SUCCESS: Prompt management REST API endpoints verified.")
+        finally:
+            if org_id:
+                async with SessionLocal() as session:
+                    user_res = await session.execute(select(User).where(User.organization_id == org_id))
+                    for u in user_res.scalars().all():
+                        await session.delete(u)
+                    org_row = await session.get(Organization, org_id)
+                    if org_row:
+                        await session.delete(org_row)
+                    await session.commit()
 
     print("\nAll Prompt Registry & Rollback Engine tests completed successfully!")
 

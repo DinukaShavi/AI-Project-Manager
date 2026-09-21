@@ -9,7 +9,6 @@ export { analyticsApi } from "./analytics.api";
 export { agentApi } from "./agent.api";
 export { workflowApi } from "./workflow.api";
 export { contextApi } from "./context.api";
-export { integrationsApi } from "./integrations.api";
 export { observabilityApi } from "./observability.api";
 export { securityApi } from "./security.api";
 export { rateLimiterApi } from "./rateLimiter.api";

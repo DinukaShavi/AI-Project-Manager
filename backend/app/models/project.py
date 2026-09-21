@@ -74,6 +74,9 @@ class Meeting(Base):
     start_time = Column(DateTime(timezone=True), nullable=False)
     end_time = Column(DateTime(timezone=True), nullable=False)
     attendees = Column(JSONB, nullable=False, default=list)
+    # Real Google Meet join URL, when the event has one -- either requested at creation time
+    # (Phase 65's conferenceDataVersion=1) or already present on a synced pre-existing event.
+    meet_link = Column(String(500), nullable=True)
 
     # Relationships
     project = relationship("Project", back_populates="meetings")

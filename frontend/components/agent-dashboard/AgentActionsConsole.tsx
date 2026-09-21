@@ -45,7 +45,7 @@ export default function AgentActionsConsole({ organizationId, projectId }: Props
         setResult({ status: "success", action: "Commented on PR #42", details: res });
       } else if (selectedAction === "calendar") {
         const res = await executeAgentPersona(
-          "SprintPlanningAgent",
+          "TechnicalPMAgent",
           `Schedule Google Calendar meeting: "${inputTitle}"`,
           organizationId,
           projectId

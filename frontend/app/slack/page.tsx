@@ -9,14 +9,12 @@ import { projectApi, slackApi, Project, ApiError } from "../../api";
 import { DiscoveredSlackChannel, MappedSlackChannel } from "../../types/slack";
 import { Hash, MessageSquare, Users, BarChart3, RefreshCw, Lock, Globe, Search, Link2, ShieldAlert } from "lucide-react";
 
-const DUMMY_ORG_ID = "00000000-0000-0000-0000-000000000001";
-
 export default function SlackIntegrationPage() {
   const { user } = useAuth();
   const organizationId = user?.organization_id;
 
   const [activeTab, setActiveTab] = useState<"channels" | "messages" | "users" | "activity">("channels");
-  const [selectedChannel, setSelectedChannel] = useState<string>("C01ABCDEF01");
+  const [selectedChannel, setSelectedChannel] = useState<string | null>(null);
 
   // Real tenant/project context -- never a hardcoded id (matches the pattern already
   // established across this session's other real-data-wiring pages).
@@ -33,12 +31,12 @@ export default function SlackIntegrationPage() {
   const [discoverError, setDiscoverError] = useState<string | null>(null);
   const [mappingChannelId, setMappingChannelId] = useState<string | null>(null);
 
-  // Messages/Users/Activity remain sourced from the documented Slack mock GET endpoints
-  // (confirmed hardcoded server-side, ignoring organization_id entirely) -- real message
-  // ingestion into centralized project context is separate, larger work this turn doesn't build.
-  const { messages, loading: loadingMessages, error: errorMessages, refresh: refreshMessages } = useSlackMessages(DUMMY_ORG_ID, selectedChannel);
-  const { users, loading: loadingUsers, error: errorUsers, refresh: refreshUsers } = useSlackUsers(DUMMY_ORG_ID);
-  const { activity, loading: loadingActivity, error: errorActivity, refresh: refreshActivity } = useSlackActivity(DUMMY_ORG_ID);
+  // Real Users & Messages (Phase 63); Activity is also real now (Phase 72) -- message
+  // volume/hourly distribution computed from real timestamps, sentiment/topics via a real
+  // LLM call over the real message text, honestly null when unavailable.
+  const { messages, loading: loadingMessages, error: errorMessages, refresh: refreshMessages } = useSlackMessages(selectedChannel);
+  const { users, loading: loadingUsers, error: errorUsers, refresh: refreshUsers } = useSlackUsers();
+  const { activity, loading: loadingActivity, error: errorActivity, refresh: refreshActivity } = useSlackActivity(selectedChannel);
 
   const loadProjects = useCallback(async () => {
     if (!organizationId) return;
@@ -67,6 +65,7 @@ export default function SlackIntegrationPage() {
     try {
       const res = await slackApi.getMappedChannels(projectId);
       setMappedChannels(res.channels);
+      setSelectedChannel((prev) => (prev && res.channels.some((c) => c.slack_channel_id === prev) ? prev : res.channels[0]?.slack_channel_id || null));
     } catch (err) {
       setMappedError(err instanceof ApiError ? err.message : "Failed to load mapped channels.");
     } finally {
@@ -79,6 +78,7 @@ export default function SlackIntegrationPage() {
       loadMappedChannels(selectedProjectId);
     } else {
       setMappedChannels([]);
+      setSelectedChannel(null);
       setLoadingMapped(false);
     }
   }, [selectedProjectId, loadMappedChannels]);
@@ -292,8 +292,27 @@ export default function SlackIntegrationPage() {
 
           {activeTab === "messages" && (
             <div className="space-y-3">
-              {loadingMessages ? (
+              {mappedChannels.length > 1 && (
+                <select
+                  value={selectedChannel || ""}
+                  onChange={(e) => setSelectedChannel(e.target.value || null)}
+                  className="px-3 py-2 rounded-xl text-xs bg-white/5 border border-white/10 text-slate-200"
+                >
+                  {mappedChannels.map((c) => (
+                    <option key={c.id} value={c.slack_channel_id} className="bg-slate-900">
+                      {c.slack_channel_id}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {!selectedChannel ? (
+                <div className="p-8 text-center text-slate-400 text-sm">
+                  No channel mapped to this project yet. Map one from the Channels tab to view its real messages.
+                </div>
+              ) : loadingMessages ? (
                 <div className="p-8 text-center text-slate-400 font-medium">Loading Messages...</div>
+              ) : errorMessages ? (
+                <div className="p-4 rounded-xl bg-rose-500/10 text-rose-400 border border-rose-500/20">{errorMessages}</div>
               ) : (
                 messages.map((msg) => (
                   <div key={msg.ts} className="p-4 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-xl flex items-start gap-3">
@@ -329,20 +348,28 @@ export default function SlackIntegrationPage() {
             </div>
           )}
 
+          {activeTab === "activity" && !selectedChannel && (
+            <p className="text-sm text-slate-400">Select a mapped channel above to see its real activity.</p>
+          )}
+
           {activeTab === "activity" && activity && (
             <div className="p-6 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-xl space-y-4">
               <div className="grid grid-cols-3 gap-4">
                 <div className="p-4 rounded-xl bg-white/5 text-center">
-                  <p className="text-xs text-slate-400">Daily Volume</p>
-                  <p className="text-2xl font-extrabold text-white mt-1">{activity.daily_message_volume} msg</p>
+                  <p className="text-xs text-slate-400">Messages</p>
+                  <p className="text-2xl font-extrabold text-white mt-1">{activity.message_count} msg</p>
                 </div>
                 <div className="p-4 rounded-xl bg-white/5 text-center">
                   <p className="text-xs text-slate-400">Sentiment Score</p>
-                  <p className="text-2xl font-extrabold text-emerald-400 mt-1">{activity.sentiment_score * 100}% Positive</p>
+                  <p className="text-2xl font-extrabold text-emerald-400 mt-1">
+                    {activity.sentiment_score === null ? "—" : `${Math.round(activity.sentiment_score * 100)}% Positive`}
+                  </p>
                 </div>
                 <div className="p-4 rounded-xl bg-white/5 text-center">
                   <p className="text-xs text-slate-400">Top Topics</p>
-                  <p className="text-xs font-semibold text-white mt-2">{activity.top_discussed_topics.join(" • ")}</p>
+                  <p className="text-xs font-semibold text-white mt-2">
+                    {activity.top_discussed_topics.length > 0 ? activity.top_discussed_topics.join(" • ") : "—"}
+                  </p>
                 </div>
               </div>
             </div>

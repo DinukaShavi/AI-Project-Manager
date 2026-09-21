@@ -1,11 +1,7 @@
 import { httpClient } from "./client";
-import { CalendarEvent, GoogleMeeting, AvailabilitySlot, CalendarSyncRequest, CalendarSyncResponse, SyncedMeetingsResponse, CreateCalendarEventRequest, SyncedMeeting } from "../types/calendar";
+import { AvailabilitySlot, CalendarSyncRequest, CalendarSyncResponse, SyncedMeetingsResponse, CreateCalendarEventRequest, SyncedMeeting } from "../types/calendar";
 
 export const calendarApi = {
-  getEvents: async (orgId: string): Promise<{ events: CalendarEvent[] }> => {
-    return httpClient<{ events: CalendarEvent[] }>(`/integrations/google/events?organization_id=${orgId}`);
-  },
-
   syncEvents: async (payload: CalendarSyncRequest): Promise<CalendarSyncResponse> => {
     return httpClient<CalendarSyncResponse>("/integrations/calendar/sync", {
       method: "POST",
@@ -24,11 +20,10 @@ export const calendarApi = {
     });
   },
 
-  getMeetings: async (orgId: string): Promise<{ meetings: GoogleMeeting[] }> => {
-    return httpClient<{ meetings: GoogleMeeting[] }>(`/integrations/google/meetings?organization_id=${orgId}`);
-  },
-
-  getAvailability: async (orgId: string): Promise<{ available_slots: AvailabilitySlot[] }> => {
-    return httpClient<{ available_slots: AvailabilitySlot[] }>(`/integrations/google/availability?organization_id=${orgId}`);
+  // Real (Phase 65) -- organization is derived from the authenticated JWT server-side.
+  getAvailability: async (startDate: string, endDate: string): Promise<{ available_slots: AvailabilitySlot[] }> => {
+    return httpClient<{ available_slots: AvailabilitySlot[] }>(
+      `/integrations/calendar/availability?start_date=${encodeURIComponent(startDate)}&end_date=${encodeURIComponent(endDate)}`
+    );
   },
 };

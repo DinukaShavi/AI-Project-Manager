@@ -35,23 +35,28 @@ export function useJiraProjects() {
   return { projects, loading, error, refresh: fetchProjects };
 }
 
-export function useJiraIssues(orgId: string, projectKey: string = "TPM") {
+export function useJiraIssues(projectId: string | null) {
   const [issues, setIssues] = useState<JiraIssue[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const fetchIssues = useCallback(async () => {
+    if (!projectId) {
+      setIssues([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
-      const res = await jiraApi.getIssues(orgId, projectKey);
+      const res = await jiraApi.getIssues(projectId);
       setIssues(res.issues || []);
     } catch (err: any) {
       setError(err.message || "Failed to load Jira issues");
     } finally {
       setLoading(false);
     }
-  }, [orgId, projectKey]);
+  }, [projectId]);
 
   useEffect(() => {
     fetchIssues();
@@ -60,23 +65,28 @@ export function useJiraIssues(orgId: string, projectKey: string = "TPM") {
   return { issues, loading, error, refresh: fetchIssues };
 }
 
-export function useJiraSprints(orgId: string, projectKey: string = "TPM") {
+export function useJiraSprints(projectId: string | null) {
   const [sprints, setSprints] = useState<JiraSprint[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const fetchSprints = useCallback(async () => {
+    if (!projectId) {
+      setSprints([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
-      const res = await jiraApi.getSprints(orgId, projectKey);
+      const res = await jiraApi.getSprints(projectId);
       setSprints(res.sprints || []);
     } catch (err: any) {
       setError(err.message || "Failed to load Jira sprints");
     } finally {
       setLoading(false);
     }
-  }, [orgId, projectKey]);
+  }, [projectId]);
 
   useEffect(() => {
     fetchSprints();
@@ -85,19 +95,25 @@ export function useJiraSprints(orgId: string, projectKey: string = "TPM") {
   return { sprints, loading, error, refresh: fetchSprints };
 }
 
-export function useJiraMetrics(orgId: string) {
+export function useJiraMetrics(projectId: string | null) {
   const [workload, setWorkload] = useState<JiraTeamWorkload[]>([]);
   const [velocity, setVelocity] = useState<JiraVelocityMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const fetchMetrics = useCallback(async () => {
+    if (!projectId) {
+      setWorkload([]);
+      setVelocity(null);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
       const [wRes, vRes] = await Promise.all([
-        jiraApi.getWorkload(orgId),
-        jiraApi.getVelocity(orgId),
+        jiraApi.getWorkload(projectId),
+        jiraApi.getVelocity(projectId),
       ]);
       setWorkload(wRes.team_workload || []);
       setVelocity(vRes);
@@ -106,7 +122,7 @@ export function useJiraMetrics(orgId: string) {
     } finally {
       setLoading(false);
     }
-  }, [orgId]);
+  }, [projectId]);
 
   useEffect(() => {
     fetchMetrics();

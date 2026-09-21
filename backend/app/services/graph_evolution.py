@@ -14,6 +14,7 @@ BASE_RELATION_WEIGHTS: Dict[str, float] = {
 @dataclass
 class GraphEdgeRecord:
     id: str
+    organization_id: str
     source_id: str
     target_id: str
     relation_type: str
@@ -23,25 +24,37 @@ class GraphEdgeRecord:
     last_updated: float = field(default_factory=time.time)
 
 class KnowledgeGraphEvolutionEngine:
-    """Enterprise Knowledge Graph Evolution Engine with Decay Sweep & Inference Pipeline."""
+    """Enterprise Knowledge Graph Evolution Engine with Decay Sweep & Inference Pipeline.
+
+    Edges are keyed by (organization_id, source_id->relation->target_id) -- real tenant
+    scoping (Phase 83), since source_id/target_id are caller-chosen strings that can
+    plausibly collide across organizations (e.g. a Jira key format like "PROJ-123" is common
+    to many real orgs) and this engine has no other tenant boundary."""
 
     def __init__(self):
         self.edges: Dict[str, GraphEdgeRecord] = {}
 
+    @staticmethod
+    def _edge_key(organization_id: str, source_id: str, relation_type: str, target_id: str) -> str:
+        return f"{organization_id}:{source_id}->{relation_type}->{target_id}"
+
     def link_entities(
         self,
+        organization_id: str,
         source_id: str,
         target_id: str,
         relation_type: str,
         base_weight: Optional[float] = None
     ) -> GraphEdgeRecord:
-        """Create or update a weighted relationship edge between two entities."""
-        edge_key = f"{source_id}->{relation_type}->{target_id}"
+        """Create or update a weighted relationship edge between two entities, scoped to the
+        real calling organization."""
+        edge_key = self._edge_key(organization_id, source_id, relation_type, target_id)
         bw = base_weight if base_weight is not None else BASE_RELATION_WEIGHTS.get(relation_type, 0.5)
 
         now = time.time()
         edge = GraphEdgeRecord(
             id=edge_key,
+            organization_id=organization_id,
             source_id=source_id,
             target_id=target_id,
             relation_type=relation_type,
@@ -53,7 +66,7 @@ class KnowledgeGraphEvolutionEngine:
         self.edges[edge_key] = edge
         return edge
 
-    def infer_implicit_edges(self, events: List[Dict[str, Any]]) -> List[GraphEdgeRecord]:
+    def infer_implicit_edges(self, organization_id: str, events: List[Dict[str, Any]]) -> List[GraphEdgeRecord]:
         """
         Inference Pipeline:
         Scans event payloads (commits, PR descriptions, incident reports) to infer implicit edges.
@@ -66,13 +79,13 @@ class KnowledgeGraphEvolutionEngine:
             target_id = ev.get("target_id", "target-0")
 
             if "commit" in ev_type or "pr" in ev_type:
-                edge = self.link_entities(source_id, target_id, "merged_in")
+                edge = self.link_entities(organization_id, source_id, target_id, "merged_in")
                 inferred.append(edge)
             elif "incident" in ev_type:
-                edge = self.link_entities(source_id, target_id, "blocked_by")
+                edge = self.link_entities(organization_id, source_id, target_id, "blocked_by")
                 inferred.append(edge)
             else:
-                edge = self.link_entities(source_id, target_id, "mentioned_in")
+                edge = self.link_entities(organization_id, source_id, target_id, "mentioned_in")
                 inferred.append(edge)
 
         return inferred
@@ -91,15 +104,17 @@ class KnowledgeGraphEvolutionEngine:
         decayed = base_weight * (1.0 - (decay_factor * age_days))
         return max(0.05, round(decayed, 4))
 
-    def apply_decay_sweep(self, simulated_age_days: float = 0.0, decay_factor: float = 0.01) -> Dict[str, Any]:
+    def apply_decay_sweep(self, organization_id: str, simulated_age_days: float = 0.0, decay_factor: float = 0.01) -> Dict[str, Any]:
         """
         Decay Sweep Pipeline:
-        Recalculates current_weight for all active graph edges based on age in days.
+        Recalculates current_weight for the calling organization's own active graph edges
+        based on age in days -- never touches another org's edges (Phase 83).
         """
         now = time.time()
         updated_count = 0
+        org_edges = [e for e in self.edges.values() if e.organization_id == organization_id]
 
-        for edge in self.edges.values():
+        for edge in org_edges:
             if simulated_age_days > 0.0:
                 age = simulated_age_days
             else:
@@ -110,14 +125,16 @@ class KnowledgeGraphEvolutionEngine:
             updated_count += 1
 
         return {
-            "total_edges_evaluated": len(self.edges),
+            "total_edges_evaluated": len(org_edges),
             "updated_count": updated_count,
             "simulated_age_days": simulated_age_days,
             "decay_factor": decay_factor
         }
 
-    def traverse_graph(self, start_node_id: str, min_weight: float = 0.10) -> Dict[str, Any]:
-        """Traverse knowledge graph from a starting node, filtering out decayed edges below min_weight."""
+    def traverse_graph(self, organization_id: str, start_node_id: str, min_weight: float = 0.10) -> Dict[str, Any]:
+        """Traverse the calling organization's own knowledge graph from a starting node,
+        filtering out decayed edges below min_weight -- never returns another org's edges
+        even if source_id/target_id values happen to collide (Phase 83)."""
         outbound = [
             {
                 "edge_id": e.id,
@@ -127,7 +144,7 @@ class KnowledgeGraphEvolutionEngine:
                 "base_weight": e.base_weight
             }
             for e in self.edges.values()
-            if e.source_id == start_node_id and e.current_weight >= min_weight
+            if e.organization_id == organization_id and e.source_id == start_node_id and e.current_weight >= min_weight
         ]
         return {
             "start_node_id": start_node_id,

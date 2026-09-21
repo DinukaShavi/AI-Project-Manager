@@ -2,11 +2,17 @@ import asyncio
 import time
 import uuid
 from httpx import AsyncClient, ASGITransport
+from sqlalchemy import select
+
+import app.db.base  # Register models
 from app.main import app
+from app.models.tenant import Organization
+from app.db.session import SessionLocal
 from app.services.memory_lifecycle import (
     get_memory_lifecycle_engine,
     MemoryLifecycleEngine
 )
+from tests._auth_helpers import create_authenticated_headers
 
 async def test_memory_lifecycle_flow():
     print("Initializing Memory Lifecycle & Automated Vector GC validation tests...")
@@ -56,44 +62,71 @@ async def test_memory_lifecycle_flow():
     assert rebuild_res["index_type"] == "HNSW"
     print("SUCCESS: Vector HNSW index rebuild sweep executed.")
 
-    # 4. Test REST API Endpoints
-    print("\nTest 4: Testing Memory Lifecycle HTTP REST API endpoints...")
+    # 4. Test HTTP REST API Endpoints require real authentication (Phase 83) -- and that
+    #    organization_id is derived from the authenticated caller, never client-supplied.
+    print("\nTest 4: Testing Memory Lifecycle HTTP REST API endpoints require real authentication...")
+    real_org_id = None
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # POST /api/v1/memory-lifecycle/compress
-        res_comp = await client.post(
-            "/api/v1/memory-lifecycle/compress",
-            json={
-                "organization_id": org_id,
-                "conversation_id": conv_id,
-                "messages": messages,
-                "message_threshold": 10
-            }
-        )
-        assert res_comp.status_code == 200
-        assert res_comp.json()["compressed"] is True
+        try:
+            async with SessionLocal() as session:
+                org = Organization(name=f"Mem Lifecycle Org {uuid.uuid4().hex[:6]}", domain=f"memlc-{uuid.uuid4().hex[:6]}.com")
+                session.add(org)
+                await session.commit()
+                real_org_id = org.id
 
-        # POST /api/v1/memory-lifecycle/gc
-        res_gc = await client.post(
-            "/api/v1/memory-lifecycle/gc",
-            json={
-                "organization_id": org_id,
-                "memory_records": records,
-                "retention_days": 90
-            }
-        )
-        assert res_gc.status_code == 200
-        assert res_gc.json()["archived_to_cold_storage"] == 1
+            # Unauthenticated requests must be rejected, not silently accepted (Phase 83).
+            for path, body in (
+                ("/api/v1/memory-lifecycle/compress", {"conversation_id": conv_id, "messages": messages, "message_threshold": 10}),
+                ("/api/v1/memory-lifecycle/gc", {"memory_records": records, "retention_days": 90}),
+                ("/api/v1/memory-lifecycle/rebuild-index", {}),
+            ):
+                res = await client.post(path, json=body)
+                assert res.status_code in (401, 403), f"Expected 401/403 for unauthenticated {path}, got {res.status_code}: {res.text}"
+            print("SUCCESS: All three endpoints correctly reject unauthenticated requests.")
 
-        # POST /api/v1/memory-lifecycle/rebuild-index
-        res_reb = await client.post(
-            "/api/v1/memory-lifecycle/rebuild-index",
-            json={"organization_id": org_id}
-        )
-        assert res_reb.status_code == 200
-        assert res_reb.json()["status"] == "COMPLETED"
+            auth_headers = await create_authenticated_headers(client, real_org_id)
 
-        print("SUCCESS: Memory Lifecycle REST API endpoints verified.")
+            # POST /api/v1/memory-lifecycle/compress -- no organization_id in the body anymore;
+            # it's derived from the real authenticated caller server-side.
+            res_comp = await client.post(
+                "/api/v1/memory-lifecycle/compress",
+                json={"conversation_id": conv_id, "messages": messages, "message_threshold": 10},
+                headers=auth_headers,
+            )
+            assert res_comp.status_code == 200, res_comp.text
+            assert res_comp.json()["compressed"] is True
+
+            # POST /api/v1/memory-lifecycle/gc
+            res_gc = await client.post(
+                "/api/v1/memory-lifecycle/gc",
+                json={"memory_records": records, "retention_days": 90},
+                headers=auth_headers,
+            )
+            assert res_gc.status_code == 200, res_gc.text
+            assert res_gc.json()["archived_to_cold_storage"] == 1
+
+            # POST /api/v1/memory-lifecycle/rebuild-index
+            res_reb = await client.post(
+                "/api/v1/memory-lifecycle/rebuild-index",
+                json={},
+                headers=auth_headers,
+            )
+            assert res_reb.status_code == 200, res_reb.text
+            assert res_reb.json()["status"] == "COMPLETED"
+
+            print("SUCCESS: Memory Lifecycle REST API endpoints correctly require real authentication and derive organization_id server-side.")
+        finally:
+            if real_org_id:
+                async with SessionLocal() as session:
+                    from app.models.tenant import User
+                    user_res = await session.execute(select(User).where(User.organization_id == real_org_id))
+                    for u in user_res.scalars().all():
+                        await session.delete(u)
+                    org_row = await session.get(Organization, real_org_id)
+                    if org_row:
+                        await session.delete(org_row)
+                    await session.commit()
 
     print("\nAll Memory Lifecycle & Automated Vector GC System tests completed successfully!")
 

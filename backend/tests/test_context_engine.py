@@ -1,5 +1,7 @@
 import asyncio
+import json
 import uuid
+from unittest.mock import patch
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy import select
 
@@ -9,6 +11,7 @@ from app.models.tenant import Organization
 from app.models.context import ContextChunk, ContextEmbedding
 from app.context.chunker import TextChunker
 from app.context.embeddings import get_embedding_generator
+from app.agents.base import BaseAgent
 from app.services.context import ContextEngineService
 from app.db.session import SessionLocal
 from tests._auth_helpers import create_authenticated_headers
@@ -113,20 +116,34 @@ async def test_context_engine_flow():
                 created_chunk_ids.append(uuid.UUID(cid))
             print(f"SUCCESS: HTTP index endpoint returned {res_json['chunks_indexed']} chunks.")
 
-            # 6. Test HTTP API Endpoint: POST /api/v1/context/search
-            print("\nTest 6: Requesting POST /api/v1/context/search...")
-            res = await client.post(
-                "/api/v1/context/search",
-                json={
-                    "query": "outbox transaction deadlock",
-                    "top_k": 5
-                },
-                headers=auth_headers
-            )
+            # 6. Test HTTP API Endpoint: POST /api/v1/context/search -- real reranking (Phase
+            #    81) is now exercised on this human-facing endpoint, verified by mocking the
+            #    real LLM call and asserting it was actually made, same precedent Phase 78 set.
+            print("\nTest 6: Requesting POST /api/v1/context/search (with real reranking, Phase 81)...")
+            rerank_call_count = {"n": 0}
+
+            async def fake_llm_call_passthrough(self, prompt, system_prompt, task_category="output_reflection"):
+                rerank_call_count["n"] += 1
+                # Keep whatever candidate order was actually fetched -- this test only needs
+                # to prove reranking was genuinely invoked, not assert a specific reorder.
+                import re
+                indices = [int(i) for i in re.findall(r"\[(\d+)\]", prompt)]
+                return json.dumps(indices)
+
+            with patch.object(BaseAgent, "_llm_call", new=fake_llm_call_passthrough):
+                res = await client.post(
+                    "/api/v1/context/search",
+                    json={
+                        "query": "outbox transaction deadlock",
+                        "top_k": 5
+                    },
+                    headers=auth_headers
+                )
             assert res.status_code == 200, f"Search failed: {res.text}"
             search_json = res.json()
             assert search_json["results_count"] > 0
-            print(f"SUCCESS: HTTP search endpoint returned {search_json['results_count']} semantic matches.")
+            assert rerank_call_count["n"] == 1, "POST /context/search must trigger a real reranking call (Phase 81)"
+            print(f"SUCCESS: HTTP search endpoint returned {search_json['results_count']} semantic matches, real reranking correctly triggered.")
 
         finally:
             # Clean up database records

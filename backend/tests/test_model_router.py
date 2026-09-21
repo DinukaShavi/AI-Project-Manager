@@ -1,11 +1,16 @@
 import asyncio
+import uuid
 from httpx import AsyncClient, ASGITransport
+from sqlalchemy import select
 from app.main import app
+from app.models.tenant import Organization, User
+from app.db.session import SessionLocal
 from app.core.model_router import (
     get_model_router,
     TaskCategory,
     BudgetTier
 )
+from tests._auth_helpers import create_authenticated_headers
 
 async def test_model_router_flow():
     print("Initializing Dynamic Model Router & Fallback Strategy validation tests...")
@@ -42,27 +47,52 @@ async def test_model_router_flow():
     assert "gpt-4o" in exec_res["result"]
     print("SUCCESS: Primary model error triggered automatic failover to GPT-4o.")
 
-    # 4. Test REST API Endpoints
+    # 4. Test REST API Endpoints require real authentication (Phase 84).
     print("\nTest 4: Testing Model Router HTTP REST API endpoints...")
+    org_id = None
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # GET /api/v1/models/matrix
-        res_mat = await client.get("/api/v1/models/matrix")
-        assert res_mat.status_code == 200
-        assert "dag_generation" in res_mat.json()["routing_matrix"]
+        try:
+            # Unauthenticated request must be rejected.
+            res_anon = await client.get("/api/v1/models/matrix")
+            assert res_anon.status_code in (401, 403), f"Expected 401/403 for unauthenticated request, got {res_anon.status_code}"
+            print("SUCCESS: Unauthenticated request correctly rejected.")
 
-        # POST /api/v1/models/route
-        res_rt = await client.post(
-            "/api/v1/models/route",
-            json={
-                "task_category": "entity_embeddings",
-                "budget_tier": "standard",
-                "token_length": 2000
-            }
-        )
-        assert res_rt.status_code == 200
-        assert res_rt.json()["primary_model"] == "text-embedding-3-small"
-        print("SUCCESS: Model Router REST API endpoints verified.")
+            async with SessionLocal() as session:
+                org = Organization(name=f"Model Router Org {uuid.uuid4().hex[:6]}", domain=f"modelrt-{uuid.uuid4().hex[:6]}.com")
+                session.add(org)
+                await session.commit()
+                org_id = org.id
+            headers = await create_authenticated_headers(client, org_id)
+
+            # GET /api/v1/models/matrix
+            res_mat = await client.get("/api/v1/models/matrix", headers=headers)
+            assert res_mat.status_code == 200
+            assert "dag_generation" in res_mat.json()["routing_matrix"]
+
+            # POST /api/v1/models/route
+            res_rt = await client.post(
+                "/api/v1/models/route",
+                json={
+                    "task_category": "entity_embeddings",
+                    "budget_tier": "standard",
+                    "token_length": 2000
+                },
+                headers=headers,
+            )
+            assert res_rt.status_code == 200
+            assert res_rt.json()["primary_model"] == "text-embedding-3-small"
+            print("SUCCESS: Model Router REST API endpoints verified.")
+        finally:
+            if org_id:
+                async with SessionLocal() as session:
+                    user_res = await session.execute(select(User).where(User.organization_id == org_id))
+                    for u in user_res.scalars().all():
+                        await session.delete(u)
+                    org_row = await session.get(Organization, org_id)
+                    if org_row:
+                        await session.delete(org_row)
+                    await session.commit()
 
     print("\nAll Dynamic Model Router & Fallback Strategy tests completed successfully!")
 

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_db, get_current_user
 from app.models.tenant import User
 from app.services.tool import ToolService
+from app.services.tool_approval import ToolApprovalService
 from app.tools.executor import ToolExecutor
 
 router = APIRouter()
@@ -51,7 +52,7 @@ async def execute_tool(
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
-    if result["status"] == "PERMISSION_DENIED":
+    if result["status"] in ("PERMISSION_DENIED", "APPROVAL_INVALID"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=result["error"])
     if result["status"] == "TOOL_NOT_FOUND":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=result["error"])
@@ -70,3 +71,71 @@ async def execute_tool(
         "tool_name": payload.tool_name,
         "output": result["result"]
     }
+
+
+@router.get("/approvals", status_code=status.HTTP_200_OK)
+async def list_pending_approvals(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Pending high-risk tool calls awaiting human sign-off, scoped to the caller's own
+    organization (implementation_roadmap.md Milestone 12: "UI widgets to review and approve
+    pending tool calls")."""
+    approvals = await ToolApprovalService(db).list_pending(current_user.organization_id)
+    return {
+        "pending_count": len(approvals),
+        "approvals": [
+            {
+                "approval_id": str(a.id),
+                "tool_name": a.tool_name,
+                "tool_parameters": a.tool_parameters,
+                "requested_by_user_id": str(a.requested_by_user_id) if a.requested_by_user_id else None,
+                "expires_at": a.expires_at,
+                "created_at": a.created_at,
+            }
+            for a in approvals
+        ]
+    }
+
+
+@router.post("/approve/{approval_id}", status_code=status.HTTP_200_OK)
+async def approve_tool_call(
+    approval_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Grant a pending high-risk tool call, per implementation_roadmap.md Milestone 12
+    (`POST /api/v1/tools/approve/{id}`).
+
+    Authority comes from enterprise_ai_architecture_spec.md section 5's Approval Policy
+    column (e.g. `delete_repository` needs a SuperAdmin), and a requester may never approve
+    their own request. The returned `approval_token` is shown exactly once, authorizes a
+    single execution of that exact call, and expires."""
+    raw_token, reason = await ToolApprovalService(db).approve(approval_id, current_user)
+    if raw_token is None:
+        # "not found" covers another tenant's record too -- indistinguishable by design.
+        if reason == "Approval request not found.":
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=reason)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=reason)
+
+    return {
+        "status": "approved",
+        "approval_id": str(approval_id),
+        "approval_token": raw_token,
+        "message": "Supply this token as 'approval_token' to execute the approved call once."
+    }
+
+
+@router.post("/reject/{approval_id}", status_code=status.HTTP_200_OK)
+async def reject_tool_call(
+    approval_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Refuse a pending high-risk tool call. Same authority rules as approval."""
+    ok, reason = await ToolApprovalService(db).reject(approval_id, current_user)
+    if not ok:
+        if reason == "Approval request not found.":
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=reason)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=reason)
+    return {"status": "rejected", "approval_id": str(approval_id)}

@@ -28,7 +28,7 @@ class ToolExecutor:
         """Check if a tool action requires human-in-the-loop approval."""
         return tool_name in self.HIGH_RISK_SIDE_EFFECT_TOOLS
 
-    def check_permission(self, tool_name: str, user_role: str) -> bool:
+    def check_permission(self, tool_name: str, user_role: str, user_id: Optional[uuid.UUID] = None) -> bool:
         """Evaluate RBAC permissions using PolicyDecisionPoint PDP engine."""
         role_enum = UserRole.DEVELOPER
         try:
@@ -46,7 +46,7 @@ class ToolExecutor:
 
         risk = RiskLevel.HIGH if tool_name in self.HIGH_RISK_SIDE_EFFECT_TOOLS else RiskLevel.LOW
         req = ToolCallAuthorizationRequest(
-            user_id=str(uuid.uuid4()),
+            user_id=str(user_id) if user_id else None,
             role=role_enum,
             tool_name=tool_name,
             risk_level=risk
@@ -100,7 +100,7 @@ class ToolExecutor:
         is recorded as an audit_logs entry.
         """
         # 1. PDP Check
-        if not self.check_permission(tool_name, user_role):
+        if not self.check_permission(tool_name, user_role, user_id):
             outcome = {
                 "status": "PERMISSION_DENIED",
                 "error": f"Role '{user_role}' is not authorized to execute tool '{tool_name}'."
@@ -108,18 +108,62 @@ class ToolExecutor:
             await self._audit(db, organization_id, user_id, tool_name, outcome)
             return outcome
 
-        # 2. Approval Gate Check
-        if self.requires_approval(tool_name) and not approval_token:
-            approval_id = str(uuid.uuid4())
-            outcome = {
-                "status": "WAITING_APPROVAL",
-                "approval_id": approval_id,
-                "tool_name": tool_name,
-                "parameters": parameters,
-                "message": f"Execution of side-effect tool '{tool_name}' requires human approval."
-            }
-            await self._audit(db, organization_id, user_id, tool_name, outcome)
-            return outcome
+        # 2. Approval Gate Check (Phase 86 -- real, persisted, single-use grants).
+        #
+        # Previously this generated a throwaway approval_id and accepted ANY non-empty
+        # approval_token string, so the human-in-the-loop gate could be bypassed by
+        # inventing one. Approval is now a real ToolApproval row that must be granted by a
+        # sufficiently-privileged *different* user and is bound to this exact tool call.
+        if self.requires_approval(tool_name):
+            # Fail closed: without a session or tenant context the grant cannot be verified
+            # at all, so a high-risk mutating call must be refused rather than allowed.
+            if db is None or organization_id is None:
+                outcome = {
+                    "status": "PERMISSION_DENIED",
+                    "error": (
+                        f"High-risk tool '{tool_name}' requires a verifiable human approval, "
+                        "which needs an authenticated request context."
+                    ),
+                }
+                await self._audit(db, organization_id, user_id, tool_name, outcome)
+                return outcome
+
+            from app.services.tool_approval import ToolApprovalService
+            approval_service = ToolApprovalService(db)
+
+            if approval_token:
+                ok, reason = await approval_service.validate_and_consume(
+                    raw_token=approval_token,
+                    organization_id=organization_id,
+                    tool_name=tool_name,
+                    parameters=parameters,
+                )
+                if not ok:
+                    outcome = {
+                        "status": "APPROVAL_INVALID",
+                        "error": f"Approval rejected for '{tool_name}': {reason}",
+                    }
+                    await self._audit(db, organization_id, user_id, tool_name, outcome)
+                    return outcome
+            else:
+                record = await approval_service.create_pending(
+                    organization_id=organization_id,
+                    tool_name=tool_name,
+                    parameters=parameters,
+                    requested_by_user_id=user_id,
+                )
+                outcome = {
+                    "status": "WAITING_APPROVAL",
+                    "approval_id": str(record.id),
+                    "tool_name": tool_name,
+                    "parameters": parameters,
+                    "message": (
+                        f"Execution of side-effect tool '{tool_name}' requires human approval. "
+                        f"An authorized approver must call POST /api/v1/tools/approve/{record.id}."
+                    ),
+                }
+                await self._audit(db, organization_id, user_id, tool_name, outcome)
+                return outcome
 
         # 3. Tool Discovery & Parameter Validation
         try:

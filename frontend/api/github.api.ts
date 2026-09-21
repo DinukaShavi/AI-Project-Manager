@@ -1,6 +1,5 @@
 import { httpClient } from "./client";
 import {
-  GitHubRepositoriesResponse,
   GitHubPullRequestsResponse,
   GitHubCommitsResponse,
   GitHubIssuesResponse,
@@ -11,10 +10,6 @@ import {
 } from "../types/github";
 
 export const githubApi = {
-  getRepositories: async (orgId: string): Promise<GitHubRepositoriesResponse> => {
-    return httpClient<GitHubRepositoriesResponse>(`/integrations/github/repositories?organization_id=${orgId}`);
-  },
-
   linkRepository: async (payload: LinkGitHubRepositoryRequest): Promise<LinkGitHubRepositoryResponse> => {
     return httpClient<LinkGitHubRepositoryResponse>("/integrations/github/repositories", {
       method: "POST",
@@ -30,19 +25,21 @@ export const githubApi = {
     return httpClient<LinkedGitHubRepositoriesResponse>(`/integrations/github/linked-repositories?project_id=${projectId}`);
   },
 
-  getPullRequests: async (orgId: string, repository?: string): Promise<GitHubPullRequestsResponse> => {
+  // Real, project-scoped (via the project's linked repositories) -- organization is derived
+  // from the authenticated JWT server-side, never a client-supplied id.
+  getPullRequests: async (projectId: string, repository?: string): Promise<GitHubPullRequestsResponse> => {
     const query = repository ? `&repository=${encodeURIComponent(repository)}` : "";
-    return httpClient<GitHubPullRequestsResponse>(`/integrations/github/pull-requests?organization_id=${orgId}${query}`);
+    return httpClient<GitHubPullRequestsResponse>(`/integrations/github/pull-requests?project_id=${projectId}${query}`);
   },
 
-  getCommits: async (orgId: string, repository?: string): Promise<GitHubCommitsResponse> => {
+  getCommits: async (projectId: string, repository?: string): Promise<GitHubCommitsResponse> => {
     const query = repository ? `&repository=${encodeURIComponent(repository)}` : "";
-    return httpClient<GitHubCommitsResponse>(`/integrations/github/commits?organization_id=${orgId}${query}`);
+    return httpClient<GitHubCommitsResponse>(`/integrations/github/commits?project_id=${projectId}${query}`);
   },
 
-  getIssues: async (orgId: string, repository?: string): Promise<GitHubIssuesResponse> => {
+  getIssues: async (projectId: string, repository?: string): Promise<GitHubIssuesResponse> => {
     const query = repository ? `&repository=${encodeURIComponent(repository)}` : "";
-    return httpClient<GitHubIssuesResponse>(`/integrations/github/issues?organization_id=${orgId}${query}`);
+    return httpClient<GitHubIssuesResponse>(`/integrations/github/issues?project_id=${projectId}${query}`);
   },
 
   getAuthorizeUrl: async (orgId: string): Promise<{ authorization_url: string }> => {

@@ -1,18 +1,5 @@
 // TypeScript Interfaces for GitHub Integration Data Models
 
-export interface GitHubRepository {
-  id: number;
-  name: string;
-  full_name: string;
-  private: boolean;
-  html_url: string;
-  description?: string;
-  default_branch: string;
-  open_issues_count: number;
-  stargazers_count: number;
-  updated_at: string;
-}
-
 export interface GitHubPullRequest {
   id: number;
   number: number;
@@ -52,11 +39,6 @@ export interface GitHubIssue {
   labels: string[];
 }
 
-export interface GitHubRepositoriesResponse {
-  organization_id: string;
-  total_repositories: number;
-  repositories: GitHubRepository[];
-}
 
 export interface GitHubPullRequestsResponse {
   organization_id: string;
@@ -92,7 +74,7 @@ export interface LinkGitHubRepositoryResponse {
   status: string;
 }
 
-// Real repository discovery/linking (distinct from the mock GitHubRepository shape above)
+// Real repository discovery/linking
 export interface DiscoveredGitHubRepo {
   external_repo_id: string;
   name: string;

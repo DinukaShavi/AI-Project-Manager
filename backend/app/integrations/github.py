@@ -97,6 +97,38 @@ class GitHubConnector(BaseConnector):
             response.raise_for_status()
             return response.json()
 
+    async def comment_on_pr(self, repo: str, pr_number: int, body: str) -> Dict[str, Any]:
+        """Post a real comment on a pull request via POST /repos/{repo}/issues/{pr_number}/comments
+        -- GitHub's Issues API handles PR comments too (a PR is an issue with a diff attached)."""
+        if not self.token:
+            raise ValueError("A GitHub access token is required to comment on a pull request.")
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{self.base_url}/repos/{repo}/issues/{pr_number}/comments",
+                headers=self._auth_headers(),
+                json={"body": body},
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def merge_pull_request(self, repo: str, pr_number: int, commit_message: str = "") -> Dict[str, Any]:
+        """Merge a real pull request via PUT /repos/{repo}/pulls/{pr_number}/merge. High-risk
+        side-effect action -- gated by ToolExecutor's pre-existing approval requirement for
+        the "merge_pull_request" tool name, not by anything in this connector."""
+        if not self.token:
+            raise ValueError("A GitHub access token is required to merge a pull request.")
+        payload: Dict[str, Any] = {}
+        if commit_message:
+            payload["commit_message"] = commit_message
+        async with httpx.AsyncClient() as client:
+            response = await client.put(
+                f"{self.base_url}/repos/{repo}/pulls/{pr_number}/merge",
+                headers=self._auth_headers(),
+                json=payload,
+            )
+            response.raise_for_status()
+            return response.json()
+
     async def get_pull_request(self, repo: str, pr_number: int) -> Dict[str, Any]:
         """Fetch pull request details (including additions/deletions/changed_files) via
         GET /repos/{repo}/pulls/{pr_number}."""
@@ -106,3 +138,45 @@ class GitHubConnector(BaseConnector):
             response = await client.get(f"{self.base_url}/repos/{repo}/pulls/{pr_number}", headers=self._auth_headers())
             response.raise_for_status()
             return response.json()
+
+    async def list_pull_requests(self, repo: str, state: str = "all") -> list:
+        """List real pull requests for a repo via GET /repos/{repo}/pulls."""
+        if not self.token:
+            raise ValueError("A GitHub access token is required to list pull requests.")
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{self.base_url}/repos/{repo}/pulls",
+                headers=self._auth_headers(),
+                params={"state": state, "sort": "updated", "direction": "desc", "per_page": 30},
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def list_commits(self, repo: str) -> list:
+        """List real commits on a repo's default branch via GET /repos/{repo}/commits."""
+        if not self.token:
+            raise ValueError("A GitHub access token is required to list commits.")
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{self.base_url}/repos/{repo}/commits",
+                headers=self._auth_headers(),
+                params={"per_page": 30},
+            )
+            response.raise_for_status()
+            return response.json()
+
+    async def list_issues(self, repo: str, state: str = "all") -> list:
+        """List real issues for a repo via GET /repos/{repo}/issues. GitHub's issues endpoint
+        also returns pull requests (each carrying a "pull_request" key) -- filtered out here
+        since this product surface has a separate, dedicated PR listing."""
+        if not self.token:
+            raise ValueError("A GitHub access token is required to list issues.")
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{self.base_url}/repos/{repo}/issues",
+                headers=self._auth_headers(),
+                params={"state": state, "per_page": 30},
+            )
+            response.raise_for_status()
+            items = response.json()
+            return [item for item in items if "pull_request" not in item]

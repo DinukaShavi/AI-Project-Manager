@@ -22,7 +22,7 @@ class PlanningService:
         context: Optional[Dict[str, Any]] = None
     ) -> AgentPlan:
         """Decompose high-level goal into HTN plan steps and persist in agent_plans table."""
-        steps = self.planner.decompose_goal(goal, context)
+        steps = await self.planner.decompose_goal_async(goal, context)
         plan_dict = [step.to_dict() for step in steps]
 
         plan = AgentPlan(

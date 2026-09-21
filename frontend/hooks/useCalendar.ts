@@ -2,75 +2,34 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { calendarApi } from "../api/calendar.api";
-import { CalendarEvent, GoogleMeeting, AvailabilitySlot } from "../types/calendar";
+import { AvailabilitySlot } from "../types/calendar";
 
-export function useCalendarEvents(orgId: string) {
-  const [events, setEvents] = useState<CalendarEvent[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchEvents = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await calendarApi.getEvents(orgId);
-      setEvents(res.events || []);
-    } catch (err: any) {
-      setError(err.message || "Failed to load Google Calendar events");
-    } finally {
-      setLoading(false);
-    }
-  }, [orgId]);
-
-  useEffect(() => {
-    fetchEvents();
-  }, [fetchEvents]);
-
-  return { events, loading, error, refresh: fetchEvents };
-}
-
-export function useCalendarMeetings(orgId: string) {
-  const [meetings, setMeetings] = useState<GoogleMeeting[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchMeetings = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await calendarApi.getMeetings(orgId);
-      setMeetings(res.meetings || []);
-    } catch (err: any) {
-      setError(err.message || "Failed to load Google Meetings");
-    } finally {
-      setLoading(false);
-    }
-  }, [orgId]);
-
-  useEffect(() => {
-    fetchMeetings();
-  }, [fetchMeetings]);
-
-  return { meetings, loading, error, refresh: fetchMeetings };
-}
-
-export function useCalendarAvailability(orgId: string) {
+/**
+ * Real (Phase 65) team availability across the org's real members, for a given date range.
+ * Skips fetching while no range is provided.
+ */
+export function useCalendarAvailability(startDate: string | null, endDate: string | null) {
   const [slots, setSlots] = useState<AvailabilitySlot[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const fetchAvailability = useCallback(async () => {
+    if (!startDate || !endDate) {
+      setSlots([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
-      const res = await calendarApi.getAvailability(orgId);
+      const res = await calendarApi.getAvailability(startDate, endDate);
       setSlots(res.available_slots || []);
     } catch (err: any) {
       setError(err.message || "Failed to load team availability slots");
     } finally {
       setLoading(false);
     }
-  }, [orgId]);
+  }, [startDate, endDate]);
 
   useEffect(() => {
     fetchAvailability();

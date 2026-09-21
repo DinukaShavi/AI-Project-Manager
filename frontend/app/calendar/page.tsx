@@ -3,10 +3,11 @@
 import React, { useCallback, useEffect, useState } from "react";
 import Navbar from "../../components/Navbar";
 import Sidebar from "../../components/Sidebar";
-import { useCalendarMeetings, useCalendarAvailability } from "../../hooks/useCalendar";
+import { useCalendarAvailability } from "../../hooks/useCalendar";
 import { useAuth } from "../../hooks/use-auth";
-import { projectApi, calendarApi, Project, ApiError } from "../../api";
+import { projectApi, calendarApi, organizationApi, Project, ApiError } from "../../api";
 import { SyncedMeeting } from "../../types/calendar";
+import { MemberDirectoryEntry } from "../../api/types";
 import { Calendar, Video, Clock, Users, ExternalLink, RefreshCw, AlertCircle, CalendarPlus } from "lucide-react";
 
 export default function CalendarIntegrationPage() {
@@ -36,11 +37,17 @@ export default function CalendarIntegrationPage() {
   const [scheduling, setScheduling] = useState(false);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
 
-  // "Google Meet Links" and "Team Availability Slots" remain backed by the documented demo
-  // endpoints -- unlike synced calendar events, no real backend model exists yet for either
-  // Meet call links or an availability matrix, so these two tabs are left untouched.
-  const { meetings, loading: loadingMeetings, refresh: refreshMeetings } = useCalendarMeetings(organizationId || "");
-  const { slots, loading: loadingSlots, refresh: refreshSlots } = useCalendarAvailability(organizationId || "");
+  // Real org members (Phase 64) -- picked as attendee_user_ids instead of only typing raw
+  // emails by hand. Loaded once when the schedule form is first opened.
+  const [members, setMembers] = useState<MemberDirectoryEntry[]>([]);
+  const [membersLoaded, setMembersLoaded] = useState(false);
+  const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
+
+  // Real (Phase 65) team availability across the org's real members, for the next 7 days --
+  // a fixed window, matching the backend's fixed 09:00-17:00 UTC slot computation.
+  const availabilityStart = new Date().toISOString();
+  const availabilityEnd = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  const { slots, loading: loadingSlots, refresh: refreshSlots } = useCalendarAvailability(availabilityStart, availabilityEnd);
 
   const loadProjects = useCallback(async () => {
     if (!organizationId) return;
@@ -105,8 +112,28 @@ export default function CalendarIntegrationPage() {
         setSyncing(false);
       }
     }
-    refreshMeetings();
     refreshSlots();
+  };
+
+  const loadMembers = useCallback(async () => {
+    try {
+      const res = await organizationApi.listMembersDirectory();
+      setMembers(res.members);
+    } catch {
+      setMembers([]);
+    } finally {
+      setMembersLoaded(true);
+    }
+  }, []);
+
+  const toggleScheduleForm = () => {
+    const opening = !showScheduleForm;
+    setShowScheduleForm(opening);
+    if (opening && !membersLoaded) loadMembers();
+  };
+
+  const toggleMember = (id: string) => {
+    setSelectedMemberIds((prev) => (prev.includes(id) ? prev.filter((m) => m !== id) : [...prev, id]));
   };
 
   const handleScheduleMeeting = async (e: React.FormEvent) => {
@@ -125,11 +152,13 @@ export default function CalendarIntegrationPage() {
         start_time: new Date(meetingStart).toISOString(),
         end_time: new Date(meetingEnd).toISOString(),
         attendee_emails: attendee_emails.length > 0 ? attendee_emails : undefined,
+        attendee_user_ids: selectedMemberIds.length > 0 ? selectedMemberIds : undefined,
       });
       setMeetingTitle("");
       setMeetingStart("");
       setMeetingEnd("");
       setMeetingAttendees("");
+      setSelectedMemberIds([]);
       setShowScheduleForm(false);
       await loadSyncedMeetings(selectedProjectId);
     } catch (err) {
@@ -216,7 +245,7 @@ export default function CalendarIntegrationPage() {
                   : "text-slate-400 hover:text-white hover:bg-white/5"
               }`}
             >
-              <Video className="w-4 h-4" /> Google Meet Links ({meetings.length})
+              <Video className="w-4 h-4" /> Google Meet Links ({syncedMeetings.filter((m) => m.meet_link).length})
             </button>
 
             <button
@@ -237,7 +266,7 @@ export default function CalendarIntegrationPage() {
               {selectedProjectId && (
                 <div className="p-4 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-xl space-y-3">
                   <button
-                    onClick={() => setShowScheduleForm((v) => !v)}
+                    onClick={toggleScheduleForm}
                     className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 font-semibold text-sm border border-amber-500/30 transition-all"
                   >
                     <CalendarPlus className="w-4 h-4" /> {showScheduleForm ? "Cancel" : "Schedule a Meeting"}
@@ -275,9 +304,37 @@ export default function CalendarIntegrationPage() {
                           />
                         </div>
                       </div>
+                      <div>
+                        <label className="text-xs text-slate-400 block mb-1">Attendees from your organization</label>
+                        {members.length === 0 ? (
+                          <p className="text-xs text-slate-500">
+                            {membersLoaded ? "No other members in this organization yet." : "Loading team members..."}
+                          </p>
+                        ) : (
+                          <div className="flex flex-wrap gap-2">
+                            {members.map((m) => {
+                              const selected = selectedMemberIds.includes(m.id);
+                              return (
+                                <button
+                                  key={m.id}
+                                  type="button"
+                                  onClick={() => toggleMember(m.id)}
+                                  className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
+                                    selected
+                                      ? "bg-amber-600/30 border-amber-500/50 text-amber-200"
+                                      : "bg-slate-900/60 border-slate-800 text-slate-300 hover:border-slate-600"
+                                  }`}
+                                >
+                                  {m.full_name || m.email}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
                       <input
                         type="text"
-                        placeholder="Attendee emails, comma-separated (optional)"
+                        placeholder="Additional external attendee emails, comma-separated (optional)"
                         value={meetingAttendees}
                         onChange={(e) => setMeetingAttendees(e.target.value)}
                         className="w-full px-3 py-2.5 rounded-xl bg-slate-900/90 border border-slate-800 text-sm text-white focus:outline-none focus:border-amber-500"
@@ -337,11 +394,16 @@ export default function CalendarIntegrationPage() {
 
           {activeTab === "meetings" && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {loadingMeetings ? (
+              {loadingSyncedMeetings ? (
                 <div className="p-8 text-center text-slate-400 font-medium col-span-2">Loading Meet links...</div>
+              ) : syncedMeetings.filter((m) => m.meet_link).length === 0 ? (
+                <div className="p-8 text-center text-slate-400 text-sm col-span-2">
+                  No meetings with a real Google Meet link yet. Schedule one from the Events tab, or sync a project
+                  whose events already have one.
+                </div>
               ) : (
-                meetings.map((meet) => (
-                  <div key={meet.meeting_id} className="p-5 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-xl space-y-3">
+                syncedMeetings.filter((m) => m.meet_link).map((meet) => (
+                  <div key={meet.id} className="p-5 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-xl space-y-3">
                     <div className="flex items-center justify-between">
                       <h4 className="text-base font-bold text-white flex items-center gap-2">
                         <Video className="w-4 h-4 text-emerald-400" /> {meet.title}
@@ -349,7 +411,7 @@ export default function CalendarIntegrationPage() {
                       <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Scheduled</span>
                     </div>
                     <a
-                      href={meet.join_url}
+                      href={meet.meet_link!}
                       target="_blank"
                       rel="noreferrer"
                       className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 text-xs font-semibold border border-emerald-500/30 transition-all"

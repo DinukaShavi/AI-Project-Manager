@@ -1,6 +1,8 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from typing import Dict, Any, Optional
+from app.api.deps import get_current_user
+from app.models.tenant import User
 from app.core.model_router import get_model_router, ROUTING_MATRIX
 
 router = APIRouter(prefix="/models", tags=["Model Routing & Fallbacks"])
@@ -11,7 +13,7 @@ class ModelRouteRequest(BaseModel):
     token_length: int = 1000
 
 @router.get("/matrix")
-async def get_routing_matrix():
+async def get_routing_matrix(current_user: User = Depends(get_current_user)):
     """Fetch active Model Routing Matrix configuration and pricing rates."""
     matrix_output = {}
     for cat, cfg in ROUTING_MATRIX.items():
@@ -26,7 +28,7 @@ async def get_routing_matrix():
     return {"routing_matrix": matrix_output}
 
 @router.post("/route")
-async def select_model_route(payload: ModelRouteRequest):
+async def select_model_route(payload: ModelRouteRequest, current_user: User = Depends(get_current_user)):
     """Dynamically select primary and fallback model routes for a given task category."""
     router_engine = get_model_router()
     route = router_engine.select_model(

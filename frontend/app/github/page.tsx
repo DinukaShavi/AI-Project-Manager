@@ -17,8 +17,6 @@ import { projectApi, githubApi, Project, ApiError } from "../../api";
 import { DiscoveredGitHubRepo, LinkedGitHubRepo } from "../../types/github";
 import { FolderGit2, GitPullRequest, GitCommit, AlertCircle, RefreshCw, Search, Link2, ShieldAlert } from "lucide-react";
 
-const DUMMY_ORG_ID = "00000000-0000-0000-0000-000000000001";
-
 export default function GithubIntegrationPage() {
   const { user } = useAuth();
   const organizationId = user?.organization_id;
@@ -40,12 +38,12 @@ export default function GithubIntegrationPage() {
   const [discoverError, setDiscoverError] = useState<string | null>(null);
   const [linkingRepoId, setLinkingRepoId] = useState<string | null>(null);
 
-  // These three tabs remain sourced from the documented GitHub mock GET endpoints (confirmed
-  // hardcoded server-side, ignoring organization_id entirely) -- real PR/commit/issue listing
-  // per repository is a separate, larger piece of work this turn deliberately doesn't build.
-  const { pullRequests, loading: loadingPRs, error: errorPRs, refresh: refreshPRs } = useGithubPullRequests(DUMMY_ORG_ID);
-  const { commits, loading: loadingCommits, error: errorCommits, refresh: refreshCommits } = useGithubCommits(DUMMY_ORG_ID);
-  const { issues, loading: loadingIssues, error: errorIssues, refresh: refreshIssues } = useGithubIssues(DUMMY_ORG_ID);
+  // Real GitHub data (Phase 61), scoped to the selected project's linked repositories -- the
+  // same scope already used for the Linked Repositories tab below, so a PM viewing Project X
+  // only ever sees Project X's own activity, not another project's unrelated repos.
+  const { pullRequests, loading: loadingPRs, error: errorPRs, refresh: refreshPRs } = useGithubPullRequests(selectedProjectId);
+  const { commits, loading: loadingCommits, error: errorCommits, refresh: refreshCommits } = useGithubCommits(selectedProjectId);
+  const { issues, loading: loadingIssues, error: errorIssues, refresh: refreshIssues } = useGithubIssues(selectedProjectId);
 
   const loadProjects = useCallback(async () => {
     if (!organizationId) return;
@@ -141,7 +139,7 @@ export default function GithubIntegrationPage() {
       <Navbar />
 
       <div className="flex pt-16">
-        <Sidebar activeTab="github" onTabChange={() => {}} />
+        <Sidebar activeTab="github" />
 
         <main className="flex-1 p-6 md:p-8 max-w-7xl mx-auto space-y-6 relative z-10">
           {/* Header Title */}

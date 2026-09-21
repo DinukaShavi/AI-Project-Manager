@@ -1,6 +1,8 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from typing import Dict, Any, Optional, List
+from app.api.deps import get_current_user
+from app.models.tenant import User
 from app.agents.prompt_registry import get_prompt_registry
 
 router = APIRouter(prefix="/prompts", tags=["Prompts & Versioning"])
@@ -19,7 +21,7 @@ class OutcomeRecordRequest(BaseModel):
     success: bool
 
 @router.get("/{prompt_key}")
-async def get_prompt_version(prompt_key: str):
+async def get_prompt_version(prompt_key: str, current_user: User = Depends(get_current_user)):
     """Get currently active prompt version and content for a prompt key."""
     registry = get_prompt_registry()
     ver, content = registry.get_active_prompt(prompt_key)
@@ -42,7 +44,7 @@ async def get_prompt_version(prompt_key: str):
     }
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
-async def register_prompt_version(payload: PromptRegisterRequest):
+async def register_prompt_version(payload: PromptRegisterRequest, current_user: User = Depends(get_current_user)):
     """Register a new SemVer prompt version (Canary or Stable)."""
     registry = get_prompt_registry()
     pv = registry.register_prompt_version(
@@ -62,7 +64,7 @@ async def register_prompt_version(payload: PromptRegisterRequest):
     }
 
 @router.post("/outcome")
-async def record_prompt_outcome(payload: OutcomeRecordRequest):
+async def record_prompt_outcome(payload: OutcomeRecordRequest, current_user: User = Depends(get_current_user)):
     """Record execution outcome for a prompt version and evaluate auto-rollback conditions."""
     registry = get_prompt_registry()
     restored = registry.record_run_outcome(
@@ -79,7 +81,7 @@ async def record_prompt_outcome(payload: OutcomeRecordRequest):
     }
 
 @router.post("/{prompt_key}/rollback")
-async def trigger_rollback(prompt_key: str, failed_version: str):
+async def trigger_rollback(prompt_key: str, failed_version: str, current_user: User = Depends(get_current_user)):
     """Manually trigger an immediate rollback to the active stable version."""
     registry = get_prompt_registry()
     restored = registry.trigger_automated_rollback(prompt_key, failed_version)

@@ -27,26 +27,14 @@ class ContextSearchTool(BaseTool):
         top_k = params.get("top_k", 5)
 
         if not session:
-            # Fallback mock when no session is injected
-            return {
-                "status": "success",
-                "query": query_text,
-                "results_count": 1,
-                "results": [
-                    {
-                        "chunk_id": "mock-chunk-1",
-                        "source_type": "doc",
-                        "content": f"Relevant context snippet for query '{query_text}'",
-                        "score": 0.88
-                    }
-                ]
-            }
+            raise ValueError("Database session required to execute a real context search.")
 
         service = ContextEngineService(session)
         results = await service.search_context(
             organization_id=org_id,
             query_text=query_text,
-            top_k=top_k
+            top_k=top_k,
+            rerank=True,
         )
         return {
             "status": "success",

@@ -59,7 +59,8 @@ export default function Sidebar({ activeTab, onTabChange, setActiveTab }: Sideba
           <nav className="space-y-1">
             {navItems.map((item) => {
               const isActive = activeTab === item.id;
-              if (item.path !== "/" && item.path) {
+              const handlesOwnTabState = item.path === "/" && (!!onTabChange || !!setActiveTab);
+              if (item.path && !handlesOwnTabState) {
                 return (
                   <Link
                     key={item.id}

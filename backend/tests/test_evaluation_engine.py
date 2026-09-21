@@ -1,11 +1,16 @@
 import asyncio
+import uuid
 from httpx import AsyncClient, ASGITransport
+from sqlalchemy import select
 from app.main import app
+from app.models.tenant import Organization, User
+from app.db.session import SessionLocal
 from app.agents.evaluation_engine import (
     get_evaluation_engine,
     EvaluationEngine,
     EvaluationAssertion
 )
+from tests._auth_helpers import create_authenticated_headers
 
 async def test_evaluation_engine_flow():
     print("Initializing AI Evaluation & Benchmark Framework validation tests...")
@@ -56,38 +61,67 @@ async def test_evaluation_engine_flow():
     assert len(result.assertion_results) == 3
     print("SUCCESS: Benchmark suite assertions executed and passed.")
 
-    # 5. Test REST API Endpoints
+    # 5. Test REST API Endpoints require real authentication (Phase 84).
     print("\nTest 5: Testing Evaluation HTTP REST API endpoints...")
+    org_id = None
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # POST /api/v1/evaluations/evaluate-output
-        res_eval = await client.post(
-            "/api/v1/evaluations/evaluate-output",
-            json={
-                "agent_output": "Completed 5 tasks with 0 errors.",
-                "source_context": "5 tasks queued for execution.",
-                "success_calls": 5,
-                "total_calls": 5
-            }
-        )
-        assert res_eval.status_code == 200
-        assert res_eval.json()["tool_success_rate"] == 100.0
+        try:
+            # Unauthenticated request must be rejected.
+            res_anon = await client.post(
+                "/api/v1/evaluations/evaluate-output",
+                json={"agent_output": "x", "source_context": "x"}
+            )
+            assert res_anon.status_code in (401, 403), f"Expected 401/403 for unauthenticated request, got {res_anon.status_code}"
+            print("SUCCESS: Unauthenticated request correctly rejected.")
 
-        # POST /api/v1/evaluations/benchmark
-        res_bench = await client.post(
-            "/api/v1/evaluations/benchmark",
-            json={
-                "test_suite": "sprint_planning_assessment",
-                "metrics": {"planning_accuracy": 0.95, "hallucination_rate": 0.01},
-                "assertions": [
-                    {"metric": "planning_accuracy", "operator": "gte", "threshold": 0.90},
-                    {"metric": "hallucination_rate", "operator": "lte", "threshold": 0.02}
-                ]
-            }
-        )
-        assert res_bench.status_code == 200
-        assert res_bench.json()["passed"] is True
-        print("SUCCESS: Evaluation REST API endpoints verified.")
+            async with SessionLocal() as session:
+                org = Organization(name=f"Evaluation Org {uuid.uuid4().hex[:6]}", domain=f"eval-{uuid.uuid4().hex[:6]}.com")
+                session.add(org)
+                await session.commit()
+                org_id = org.id
+            headers = await create_authenticated_headers(client, org_id)
+
+            # POST /api/v1/evaluations/evaluate-output
+            res_eval = await client.post(
+                "/api/v1/evaluations/evaluate-output",
+                json={
+                    "agent_output": "Completed 5 tasks with 0 errors.",
+                    "source_context": "5 tasks queued for execution.",
+                    "success_calls": 5,
+                    "total_calls": 5
+                },
+                headers=headers,
+            )
+            assert res_eval.status_code == 200
+            assert res_eval.json()["tool_success_rate"] == 100.0
+
+            # POST /api/v1/evaluations/benchmark
+            res_bench = await client.post(
+                "/api/v1/evaluations/benchmark",
+                json={
+                    "test_suite": "sprint_planning_assessment",
+                    "metrics": {"planning_accuracy": 0.95, "hallucination_rate": 0.01},
+                    "assertions": [
+                        {"metric": "planning_accuracy", "operator": "gte", "threshold": 0.90},
+                        {"metric": "hallucination_rate", "operator": "lte", "threshold": 0.02}
+                    ]
+                },
+                headers=headers,
+            )
+            assert res_bench.status_code == 200
+            assert res_bench.json()["passed"] is True
+            print("SUCCESS: Evaluation REST API endpoints verified.")
+        finally:
+            if org_id:
+                async with SessionLocal() as session:
+                    user_res = await session.execute(select(User).where(User.organization_id == org_id))
+                    for u in user_res.scalars().all():
+                        await session.delete(u)
+                    org_row = await session.get(Organization, org_id)
+                    if org_row:
+                        await session.delete(org_row)
+                    await session.commit()
 
     print("\nAll AI Evaluation & Benchmark System tests completed successfully!")
 

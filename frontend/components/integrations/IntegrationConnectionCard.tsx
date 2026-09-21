@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
-import { LucideIcon, CheckCircle2, ShieldCheck, Unlink, AlertTriangle, ArrowRight, Loader2 } from "lucide-react";
+import { LucideIcon, CheckCircle2, ShieldCheck, Unlink, AlertTriangle, ArrowRight, Loader2, Webhook, Copy, Check } from "lucide-react";
 import { integrationOAuthApi } from "../../api/integrationOAuth.api";
 import { IntegrationConnectionStatus } from "../../types/integrationStatus";
 
@@ -39,9 +39,43 @@ export default function IntegrationConnectionCard({
 }: Props) {
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [webhookPath, setWebhookPath] = useState<string | null>(null);
+  const [webhookLoading, setWebhookLoading] = useState(false);
+  const [webhookCopied, setWebhookCopied] = useState(false);
 
   const isConnected = status === "connected";
   const needsReauth = status === "reauth_required";
+
+  const handleShowWebhookUrl = async () => {
+    setWebhookLoading(true);
+    try {
+      const res = await integrationOAuthApi.getWebhookUrl(provider);
+      setWebhookPath(res.webhook_path);
+    } catch {
+      // Admin-gated on the backend -- a non-admin viewer simply won't see a result, no error surfaced.
+      setWebhookPath(null);
+    } finally {
+      setWebhookLoading(false);
+    }
+  };
+
+  // webhook_path is a backend-relative path (/api/v1/webhooks/{provider}/{token}); resolve it
+  // against the backend's own origin (the API base URL this frontend already talks to), not
+  // the frontend's own origin -- the two are different services/ports/domains.
+  const fullWebhookUrl = webhookPath
+    ? new URL(webhookPath, (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1").replace(/\/api\/v1\/?$/, "")).toString()
+    : null;
+
+  const handleCopyWebhookUrl = async () => {
+    if (!fullWebhookUrl) return;
+    try {
+      await navigator.clipboard.writeText(fullWebhookUrl);
+      setWebhookCopied(true);
+      setTimeout(() => setWebhookCopied(false), 2000);
+    } catch {
+      // Clipboard access denied -- the URL is still visible on-screen to copy manually.
+    }
+  };
 
   const handleConnect = async () => {
     setActionLoading(true);
@@ -115,6 +149,32 @@ export default function IntegrationConnectionCard({
         {actionError && (
           <div role="alert" className="px-3 py-2 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs">
             {actionError}
+          </div>
+        )}
+
+        {isConnected && (
+          <div className="space-y-1.5">
+            {fullWebhookUrl ? (
+              <div className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg bg-slate-900/60 border border-slate-800">
+                <code className="flex-1 text-[10px] text-slate-300 truncate">{fullWebhookUrl}</code>
+                <button
+                  onClick={handleCopyWebhookUrl}
+                  aria-label="Copy webhook URL"
+                  className="p-1 rounded text-slate-400 hover:text-white shrink-0"
+                >
+                  {webhookCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={handleShowWebhookUrl}
+                disabled={webhookLoading}
+                className="w-full py-2 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-medium border border-white/10 transition-all flex items-center justify-center gap-1.5 disabled:opacity-60"
+              >
+                {webhookLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Webhook className="w-3.5 h-3.5" />}
+                Show Webhook URL
+              </button>
+            )}
           </div>
         )}
       </div>

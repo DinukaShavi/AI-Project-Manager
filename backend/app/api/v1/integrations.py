@@ -1,15 +1,15 @@
-import json
 import uuid as uuid_lib
 from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_db, get_current_user
-from app.core.config import settings
+from app.core.rbac_pdp import ADMIN_ROLES
 from app.models.tenant import User
 from app.services.integration import IntegrationService
+from app.services.slack_activity import SlackActivityService
 
 router = APIRouter()
 
@@ -33,6 +33,10 @@ class CreateCalendarEventRequest(BaseModel):
     start_time: datetime
     end_time: datetime
     attendee_emails: Optional[List[str]] = None
+    # Real org members picked from GET /organizations/members/directory (Phase 64) -- resolved
+    # to their real emails server-side and merged with attendee_emails, rather than a PM having
+    # to type every teammate's exact email by hand.
+    attendee_user_ids: Optional[List[UUID]] = None
     description: str = ""
 
 
@@ -40,151 +44,42 @@ class SlackChannelMappingRequest(BaseModel):
     project_id: UUID
     slack_channel_id: str = Field(..., min_length=1, max_length=50)
 
-DEFAULT_ORG_ID = UUID("00000000-0000-0000-0000-000000000001")
+
+# NOTE: the four provider webhook intake routes formerly lived here as
+# POST /{provider}/webhook?organization_id=&secret= -- both organization_id and secret were
+# client-supplied query parameters with no verification the caller had any relationship to
+# that organization, which let a forged-but-self-signed request inject events into any org's
+# stream (Phase 60). They have been replaced entirely by the per-organization,
+# unguessable-token routes in app/api/v1/webhooks.py: POST /webhooks/{provider}/{webhook_token}.
+# The endpoint below lets an org admin discover their own real webhook URL to configure on the
+# provider's side.
 
 
-@router.post("/github/webhook", status_code=status.HTTP_202_ACCEPTED)
-async def github_webhook(
-    request: Request,
-    organization_id: Optional[UUID] = None,
-    project_id: Optional[UUID] = None,
-    secret: Optional[str] = None,
-    db: AsyncSession = Depends(get_db)
+@router.get("/{provider}/webhook-url", status_code=status.HTTP_200_OK)
+async def get_webhook_url(
+    provider: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    """Receive and ingest incoming GitHub webhooks into system events."""
-    raw_body = await request.body()
-    try:
-        json_body = json.loads(raw_body.decode("utf-8")) if raw_body else {}
-    except Exception:
-        json_body = {}
-
-    headers = {k.lower(): v for k, v in request.headers.items()}
-    service = IntegrationService(db)
-    org_id = organization_id or DEFAULT_ORG_ID
-    webhook_secret = secret or settings.GITHUB_WEBHOOK_SECRET
-
-    try:
-        event = await service.receive_webhook(
-            provider="github",
-            payload_bytes=raw_body,
-            payload_json=json_body,
-            headers=headers,
-            organization_id=org_id,
-            project_id=project_id,
-            secret=webhook_secret
+    """Return this organization's real, token-bearing inbound webhook URL for a connected
+    provider, so an admin can paste it into GitHub/Jira/Slack/Google's webhook configuration.
+    OrgAdmin/SuperAdmin only, tenant-scoped from the authenticated user -- never derived from
+    a client-supplied organization_id."""
+    role_names = {r.name for r in current_user.roles}
+    if not role_names & ADMIN_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only OrgAdmin or SuperAdmin roles may view the webhook URL."
         )
-        return {"status": "accepted", "event_id": str(event.id), "routing_key": event.routing_key}
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
-
-@router.post("/jira/webhook", status_code=status.HTTP_202_ACCEPTED)
-async def jira_webhook(
-    request: Request,
-    organization_id: Optional[UUID] = None,
-    project_id: Optional[UUID] = None,
-    secret: Optional[str] = None,
-    db: AsyncSession = Depends(get_db)
-):
-    """Receive and ingest incoming Jira webhooks into system events."""
-    raw_body = await request.body()
-    try:
-        json_body = json.loads(raw_body.decode("utf-8")) if raw_body else {}
-    except Exception:
-        json_body = {}
-
-    headers = {k.lower(): v for k, v in request.headers.items()}
     service = IntegrationService(db)
-    org_id = organization_id or DEFAULT_ORG_ID
-    webhook_secret = secret or settings.JIRA_API_TOKEN
-
-    try:
-        event = await service.receive_webhook(
-            provider="jira",
-            payload_bytes=raw_body,
-            payload_json=json_body,
-            headers=headers,
-            organization_id=org_id,
-            project_id=project_id,
-            secret=webhook_secret
+    path = await service.get_webhook_url(current_user.organization_id, provider)
+    if not path:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"'{provider}' is not connected for this organization yet."
         )
-        return {"status": "accepted", "event_id": str(event.id), "routing_key": event.routing_key}
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-
-
-@router.post("/slack/webhook")
-async def slack_webhook(
-    request: Request,
-    organization_id: Optional[UUID] = None,
-    project_id: Optional[UUID] = None,
-    secret: Optional[str] = None,
-    db: AsyncSession = Depends(get_db)
-):
-    """Receive and ingest incoming Slack Events API webhooks."""
-    raw_body = await request.body()
-    try:
-        json_body = json.loads(raw_body.decode("utf-8")) if raw_body else {}
-    except Exception:
-        json_body = {}
-
-    # Handle Slack URL verification challenge immediately
-    if json_body.get("type") == "url_verification":
-        return Response(content=json_body.get("challenge", ""), media_type="text/plain")
-
-    headers = {k.lower(): v for k, v in request.headers.items()}
-    service = IntegrationService(db)
-    org_id = organization_id or DEFAULT_ORG_ID
-    webhook_secret = secret or settings.SLACK_SIGNING_SECRET
-
-    try:
-        event = await service.receive_webhook(
-            provider="slack",
-            payload_bytes=raw_body,
-            payload_json=json_body,
-            headers=headers,
-            organization_id=org_id,
-            project_id=project_id,
-            secret=webhook_secret
-        )
-        return {"status": "accepted", "event_id": str(event.id), "routing_key": event.routing_key}
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-
-
-@router.post("/google/webhook", status_code=status.HTTP_202_ACCEPTED)
-async def google_calendar_webhook(
-    request: Request,
-    organization_id: Optional[UUID] = None,
-    project_id: Optional[UUID] = None,
-    secret: Optional[str] = None,
-    db: AsyncSession = Depends(get_db)
-):
-    """Receive and ingest incoming Google Calendar Push Notifications."""
-    raw_body = await request.body()
-    try:
-        json_body = json.loads(raw_body.decode("utf-8")) if raw_body else {}
-    except Exception:
-        json_body = {}
-
-    headers = {k.lower(): v for k, v in request.headers.items()}
-    service = IntegrationService(db)
-    org_id = organization_id or DEFAULT_ORG_ID
-    webhook_secret = secret or settings.GOOGLE_CLIENT_SECRET
-
-    try:
-        event = await service.receive_webhook(
-            provider="google_calendar",
-            payload_bytes=raw_body,
-            payload_json=json_body,
-            headers=headers,
-            organization_id=org_id,
-            project_id=project_id,
-            secret=webhook_secret
-        )
-        return {"status": "accepted", "event_id": str(event.id), "routing_key": event.routing_key}
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    return {"provider": provider.lower(), "webhook_path": path}
 
 
 @router.get("/oauth/{provider}/authorize", status_code=status.HTTP_200_OK)
@@ -315,9 +210,8 @@ async def discover_github_repositories(
 ):
     """List real repositories the authenticated user's organization's connected GitHub token
     can access, for the "select GitHub repositories to link" step (api_contract.md section
-    4.A). Real GitHub API call via the stored OAuth token -- distinct from the hardcoded
-    GET /github/repositories mock below, which returns fixed sample data regardless of
-    whether GitHub is even connected."""
+    4.A). Real GitHub API call via the stored OAuth token (the formerly-hardcoded GET
+    /github/repositories mock was retired in Phase 67, superseded by this endpoint)."""
     service = IntegrationService(db)
     try:
         repos = await service.discover_github_repositories(current_user.organization_id)
@@ -349,256 +243,85 @@ async def list_linked_github_repositories(
     }
 
 
-@router.get("/github/repositories", status_code=status.HTTP_200_OK)
-async def get_github_repositories(
-    organization_id: Optional[UUID] = None,
-    db: AsyncSession = Depends(get_db)
-):
-    """Retrieve connected GitHub repositories for the organization."""
-    org_id = organization_id or DEFAULT_ORG_ID
-    return {
-        "organization_id": str(org_id),
-        "total_repositories": 3,
-        "repositories": [
-            {
-                "id": 101,
-                "name": "AI-Project-Manager",
-                "full_name": "DinukaShavi/AI-Project-Manager",
-                "private": False,
-                "html_url": "https://github.com/DinukaShavi/AI-Project-Manager",
-                "description": "Enterprise AI-Powered Technical Project Manager System",
-                "default_branch": "main",
-                "open_issues_count": 4,
-                "stargazers_count": 128,
-                "updated_at": "2026-07-25T12:00:00Z"
-            },
-            {
-                "id": 102,
-                "name": "ai-tpm-engine",
-                "full_name": "DinukaShavi/ai-tpm-engine",
-                "private": True,
-                "html_url": "https://github.com/DinukaShavi/ai-tpm-engine",
-                "description": "Multi-agent HTN planning & pgvector context retrieval engine",
-                "default_branch": "main",
-                "open_issues_count": 2,
-                "stargazers_count": 45,
-                "updated_at": "2026-07-24T18:30:00Z"
-            },
-            {
-                "id": 103,
-                "name": "ai-tpm-infra",
-                "full_name": "DinukaShavi/ai-tpm-infra",
-                "private": True,
-                "html_url": "https://github.com/DinukaShavi/ai-tpm-infra",
-                "description": "Terraform AWS RDS, ElastiCache & EKS deployment modules",
-                "default_branch": "main",
-                "open_issues_count": 0,
-                "stargazers_count": 12,
-                "updated_at": "2026-07-25T08:00:00Z"
-            }
-        ]
-    }
+async def _verify_project_ownership_for_dashboard(db: AsyncSession, project_id: UUID, organization_id: UUID) -> None:
+    """Shared tenant-ownership guard for the real GitHub dashboard reads below (matches
+    context.py's identical pattern) -- without this, any authenticated user could probe
+    another organization's project data by guessing a project_id."""
+    from app.models.project import Project
+    from sqlalchemy import select as _select
+    res = await db.execute(
+        _select(Project).where(Project.id == project_id, Project.organization_id == organization_id, Project.deleted_at == None)
+    )
+    if not res.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found in this organization.")
 
 
 @router.get("/github/pull-requests", status_code=status.HTTP_200_OK)
 async def get_github_pull_requests(
-    organization_id: Optional[UUID] = None,
+    project_id: UUID,
     repository: Optional[str] = None,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    """Retrieve pull requests across connected repositories."""
-    org_id = organization_id or DEFAULT_ORG_ID
+    """Retrieve real pull requests across a project's linked GitHub repositories."""
+    await _verify_project_ownership_for_dashboard(db, project_id, current_user.organization_id)
+    service = IntegrationService(db)
+    try:
+        pull_requests = await service.get_pull_requests_for_org(current_user.organization_id, project_id, repository)
+    except LookupError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     return {
-        "organization_id": str(org_id),
-        "total_pull_requests": 4,
-        "pull_requests": [
-            {
-                "id": 501,
-                "number": 42,
-                "title": "Implement Multi-Dimensional Rate Limiter & Token Bucket Engine",
-                "state": "open",
-                "author": "dinukashavi",
-                "repository": repository or "DinukaShavi/AI-Project-Manager",
-                "html_url": "https://github.com/DinukaShavi/AI-Project-Manager/pull/42",
-                "created_at": "2026-07-25T06:30:00Z",
-                "draft": False,
-                "additions": 420,
-                "deletions": 12,
-                "labels": ["enhancement", "security"]
-            },
-            {
-                "id": 502,
-                "number": 41,
-                "title": "Add OpenTelemetry Distributed Tracing & Prometheus Exporter",
-                "state": "merged",
-                "author": "dev-lead",
-                "repository": repository or "DinukaShavi/AI-Project-Manager",
-                "html_url": "https://github.com/DinukaShavi/AI-Project-Manager/pull/41",
-                "created_at": "2026-07-24T14:20:00Z",
-                "draft": False,
-                "additions": 310,
-                "deletions": 45,
-                "labels": ["observability"]
-            },
-            {
-                "id": 503,
-                "number": 40,
-                "title": "Configure Row-Level Security (RLS) Tenant Isolation Policies",
-                "state": "merged",
-                "author": "sec-team",
-                "repository": repository or "DinukaShavi/AI-Project-Manager",
-                "html_url": "https://github.com/DinukaShavi/AI-Project-Manager/pull/40",
-                "created_at": "2026-07-23T11:00:00Z",
-                "draft": False,
-                "additions": 185,
-                "deletions": 8,
-                "labels": ["security", "database"]
-            },
-            {
-                "id": 504,
-                "number": 39,
-                "title": "Next.js 15 Dark Glassmorphism Dashboard UI Polish",
-                "state": "open",
-                "author": "frontend-dev",
-                "repository": repository or "DinukaShavi/AI-Project-Manager",
-                "html_url": "https://github.com/DinukaShavi/AI-Project-Manager/pull/39",
-                "created_at": "2026-07-25T09:15:00Z",
-                "draft": False,
-                "additions": 540,
-                "deletions": 120,
-                "labels": ["frontend", "ui/ux"]
-            }
-        ]
+        "organization_id": str(current_user.organization_id),
+        "total_pull_requests": len(pull_requests),
+        "pull_requests": pull_requests,
     }
 
 
 @router.get("/github/commits", status_code=status.HTTP_200_OK)
 async def get_github_commits(
-    organization_id: Optional[UUID] = None,
+    project_id: UUID,
     repository: Optional[str] = None,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    """Retrieve recent commit activity log across repositories."""
-    org_id = organization_id or DEFAULT_ORG_ID
+    """Retrieve real commit history across a project's linked GitHub repositories."""
+    await _verify_project_ownership_for_dashboard(db, project_id, current_user.organization_id)
+    service = IntegrationService(db)
+    try:
+        commits = await service.get_commits_for_org(current_user.organization_id, project_id, repository)
+    except LookupError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     return {
-        "organization_id": str(org_id),
-        "total_commits": 5,
-        "commits": [
-            {
-                "sha": "a1b2c3d4e5f67890123456789abcdef012345678",
-                "short_sha": "a1b2c3d",
-                "message": "feat: Add Centralized Frontend API Service Layer & Typed HTTP Client",
-                "author": "Dinuka Shavi",
-                "author_email": "dinuka@example.com",
-                "repository": repository or "DinukaShavi/AI-Project-Manager",
-                "timestamp": "2026-07-25T13:58:00Z",
-                "html_url": "https://github.com/DinukaShavi/AI-Project-Manager/commit/a1b2c3d"
-            },
-            {
-                "sha": "b2c3d4e5f67890123456789abcdef012345679",
-                "short_sha": "b2c3d4e",
-                "message": "fix: Resolve Context Engine Search 422 Schema Validation Error",
-                "author": "Dinuka Shavi",
-                "author_email": "dinuka@example.com",
-                "repository": repository or "DinukaShavi/AI-Project-Manager",
-                "timestamp": "2026-07-25T13:11:00Z",
-                "html_url": "https://github.com/DinukaShavi/AI-Project-Manager/commit/b2c3d4e"
-            },
-            {
-                "sha": "c3d4e5f67890123456789abcdef012345680",
-                "short_sha": "c3d4e5f",
-                "message": "feat: Implement Production Deployment Scaffolding (Terraform, k8s, CI/CD)",
-                "author": "Dinuka Shavi",
-                "author_email": "dinuka@example.com",
-                "repository": repository or "DinukaShavi/AI-Project-Manager",
-                "timestamp": "2026-07-25T12:49:00Z",
-                "html_url": "https://github.com/DinukaShavi/AI-Project-Manager/commit/c3d4e5f"
-            },
-            {
-                "sha": "d4e5f67890123456789abcdef012345681",
-                "short_sha": "d4e5f67",
-                "message": "feat: Multi-Tenant Schema & Virtual Isolation Engine (Phase 15e)",
-                "author": "Dinuka Shavi",
-                "author_email": "dinuka@example.com",
-                "repository": repository or "DinukaShavi/AI-Project-Manager",
-                "timestamp": "2026-07-24T17:30:00Z",
-                "html_url": "https://github.com/DinukaShavi/AI-Project-Manager/commit/d4e5f67"
-            },
-            {
-                "sha": "e5f67890123456789abcdef012345682",
-                "short_sha": "e5f6789",
-                "message": "feat: Knowledge Graph Relationship Weight Decay & Event Inference Pipeline",
-                "author": "Dinuka Shavi",
-                "author_email": "dinuka@example.com",
-                "repository": repository or "DinukaShavi/AI-Project-Manager",
-                "timestamp": "2026-07-24T15:45:00Z",
-                "html_url": "https://github.com/DinukaShavi/AI-Project-Manager/commit/e5f6789"
-            }
-        ]
+        "organization_id": str(current_user.organization_id),
+        "total_commits": len(commits),
+        "commits": commits,
     }
 
 
 @router.get("/github/issues", status_code=status.HTTP_200_OK)
 async def get_github_issues(
-    organization_id: Optional[UUID] = None,
+    project_id: UUID,
     repository: Optional[str] = None,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    """Retrieve GitHub issue tracking tickets across repositories."""
-    org_id = organization_id or DEFAULT_ORG_ID
+    """Retrieve real issues across a project's linked GitHub repositories."""
+    await _verify_project_ownership_for_dashboard(db, project_id, current_user.organization_id)
+    service = IntegrationService(db)
+    try:
+        issues = await service.get_issues_for_org(current_user.organization_id, project_id, repository)
+    except LookupError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     return {
-        "organization_id": str(org_id),
-        "total_issues": 4,
-        "issues": [
-            {
-                "id": 901,
-                "number": 105,
-                "title": "Configure Slack & GitHub Webhook HMAC Verification",
-                "state": "open",
-                "author": "dinukashavi",
-                "repository": repository or "DinukaShavi/AI-Project-Manager",
-                "html_url": "https://github.com/DinukaShavi/AI-Project-Manager/issues/105",
-                "created_at": "2026-07-25T08:00:00Z",
-                "comments_count": 3,
-                "labels": ["integration", "high-priority"]
-            },
-            {
-                "id": 902,
-                "number": 104,
-                "title": "Next.js 15 Dark Glassmorphism Component Polish",
-                "state": "open",
-                "author": "frontend-dev",
-                "repository": repository or "DinukaShavi/AI-Project-Manager",
-                "html_url": "https://github.com/DinukaShavi/AI-Project-Manager/issues/104",
-                "created_at": "2026-07-25T07:15:00Z",
-                "comments_count": 1,
-                "labels": ["ui/ux"]
-            },
-            {
-                "id": 903,
-                "number": 103,
-                "title": "Optimize HNSW Vector Index Rebuild Sweeps",
-                "state": "closed",
-                "author": "database-lead",
-                "repository": repository or "DinukaShavi/AI-Project-Manager",
-                "html_url": "https://github.com/DinukaShavi/AI-Project-Manager/issues/103",
-                "created_at": "2026-07-24T16:00:00Z",
-                "comments_count": 5,
-                "labels": ["performance", "pgvector"]
-            },
-            {
-                "id": 904,
-                "number": 102,
-                "title": "Build Outbox Pattern Worker Event Bus Pipeline",
-                "state": "closed",
-                "author": "backend-dev",
-                "repository": repository or "DinukaShavi/AI-Project-Manager",
-                "html_url": "https://github.com/DinukaShavi/AI-Project-Manager/issues/102",
-                "created_at": "2026-07-23T14:30:00Z",
-                "comments_count": 2,
-                "labels": ["backend", "events"]
-            }
-        ]
+        "organization_id": str(current_user.organization_id),
+        "total_issues": len(issues),
+        "issues": issues,
     }
 
 
@@ -630,75 +353,92 @@ async def get_jira_projects(
 
 @router.get("/jira/issues", status_code=status.HTTP_200_OK)
 async def get_jira_issues(
-    organization_id: Optional[UUID] = None,
-    project_key: Optional[str] = "TPM",
-    db: AsyncSession = Depends(get_db)
+    project_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    """Retrieve Jira issue backlog and sprint tickets."""
-    org_id = organization_id or DEFAULT_ORG_ID
+    """Retrieve the real Jira issue backlog for a project, via the org's per-organization
+    OAuth connection (Phase 62 -- the follow-up to Phase 55's site/identity resolution)."""
+    await _verify_project_ownership_for_dashboard(db, project_id, current_user.organization_id)
+    service = IntegrationService(db)
+    try:
+        issues = await service.get_jira_issues_for_project(current_user.organization_id, project_id)
+    except LookupError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     return {
-        "organization_id": str(org_id),
-        "total_issues": 4,
-        "issues": [
-            {"id": "20001", "key": "TPM-101", "summary": "Implement pgvector SQLAlchemy Fallback", "status": "In Progress", "priority": "High", "assignee": "Dinuka Shavi", "story_points": 5},
-            {"id": "20002", "key": "TPM-102", "summary": "Build Outbox Pattern Worker Event Bus", "status": "Done", "priority": "Highest", "assignee": "Dev Lead", "story_points": 8},
-            {"id": "20003", "key": "TPM-103", "summary": "Create Multi-Agent DAG Workflow Engine", "status": "Done", "priority": "High", "assignee": "AI Architect", "story_points": 8},
-            {"id": "20004", "key": "TPM-104", "summary": "Next.js 15 Dark Glassmorphism Integration", "status": "In Progress", "priority": "Medium", "assignee": "Frontend Lead", "story_points": 5}
-        ]
+        "organization_id": str(current_user.organization_id),
+        "total_issues": len(issues),
+        "issues": issues,
     }
 
 
 @router.get("/jira/sprints", status_code=status.HTTP_200_OK)
 async def get_jira_sprints(
-    organization_id: Optional[UUID] = None,
-    project_key: Optional[str] = "TPM",
-    db: AsyncSession = Depends(get_db)
+    project_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    """Retrieve active and upcoming Jira sprints."""
-    org_id = organization_id or DEFAULT_ORG_ID
+    """Retrieve the real Jira sprints for a project's board, via the org's per-organization
+    OAuth connection (Phase 62)."""
+    await _verify_project_ownership_for_dashboard(db, project_id, current_user.organization_id)
+    service = IntegrationService(db)
+    try:
+        sprints = await service.get_jira_sprints_for_project(current_user.organization_id, project_id)
+    except LookupError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     return {
-        "organization_id": str(org_id),
-        "total_sprints": 2,
-        "sprints": [
-            {"id": 301, "name": "Sprint 14 - Production Launch", "state": "active", "start_date": "2026-07-20T00:00:00Z", "end_date": "2026-08-03T00:00:00Z", "completed_story_points": 21, "total_story_points": 34},
-            {"id": 302, "name": "Sprint 15 - Performance & Scaling", "state": "future", "start_date": "2026-08-04T00:00:00Z", "end_date": "2026-08-18T00:00:00Z", "completed_story_points": 0, "total_story_points": 40}
-        ]
+        "organization_id": str(current_user.organization_id),
+        "total_sprints": len(sprints),
+        "sprints": sprints,
     }
 
 
 @router.get("/jira/workload", status_code=status.HTTP_200_OK)
 async def get_jira_workload(
-    organization_id: Optional[UUID] = None,
-    db: AsyncSession = Depends(get_db)
+    project_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    """Retrieve story points distribution across team members."""
-    org_id = organization_id or DEFAULT_ORG_ID
+    """Retrieve the real per-assignee story points distribution for a project (Phase 72),
+    aggregated from the same real Jira issues /jira/issues already returns."""
+    await _verify_project_ownership_for_dashboard(db, project_id, current_user.organization_id)
+    service = IntegrationService(db)
+    try:
+        workload = await service.get_jira_workload_for_project(current_user.organization_id, project_id)
+    except LookupError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     return {
-        "organization_id": str(org_id),
-        "team_workload": [
-            {"assignee": "Dinuka Shavi", "assigned_issues": 5, "total_story_points": 18, "capacity_percentage": 90.0},
-            {"assignee": "Dev Lead", "assigned_issues": 3, "total_story_points": 12, "capacity_percentage": 60.0},
-            {"assignee": "Frontend Lead", "assigned_issues": 2, "total_story_points": 8, "capacity_percentage": 40.0}
-        ]
+        "organization_id": str(current_user.organization_id),
+        "team_workload": workload,
     }
 
 
 @router.get("/jira/velocity", status_code=status.HTTP_200_OK)
 async def get_jira_velocity(
-    organization_id: Optional[UUID] = None,
-    db: AsyncSession = Depends(get_db)
+    project_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    """Retrieve historical sprint velocity metrics."""
-    org_id = organization_id or DEFAULT_ORG_ID
+    """Retrieve real historical sprint velocity for a project (Phase 72), reconstructed from
+    real per-sprint story points (/jira/sprints's own data) since Jira has no public Velocity
+    Chart REST endpoint."""
+    await _verify_project_ownership_for_dashboard(db, project_id, current_user.organization_id)
+    service = IntegrationService(db)
+    try:
+        velocity = await service.get_jira_velocity_for_project(current_user.organization_id, project_id)
+    except LookupError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     return {
-        "organization_id": str(org_id),
-        "average_velocity": 32.5,
-        "sprint_velocity_history": [
-            {"sprint": "Sprint 11", "committed": 30, "completed": 28},
-            {"sprint": "Sprint 12", "committed": 35, "completed": 34},
-            {"sprint": "Sprint 13", "committed": 36, "completed": 36},
-            {"sprint": "Sprint 14", "committed": 34, "completed": 21}
-        ]
+        "organization_id": str(current_user.organization_id),
+        **velocity,
     }
 
 
@@ -741,8 +481,8 @@ async def discover_slack_channels(
 ):
     """List real channels the authenticated user's organization's connected Slack bot token
     can see, for the "select Slack channels to map" step (api_contract.md section 6.A). Real
-    Slack API call via the stored OAuth token -- distinct from the hardcoded GET /slack/channels
-    mock below, which returns fixed sample data regardless of whether Slack is even connected."""
+    Slack API call via the stored OAuth token (the formerly-hardcoded GET /slack/channels mock
+    was retired in Phase 67, superseded by this endpoint)."""
     service = IntegrationService(db)
     try:
         channels = await service.discover_slack_channels(current_user.organization_id)
@@ -771,83 +511,74 @@ async def list_mapped_slack_channels(
     }
 
 
-@router.get("/slack/channels", status_code=status.HTTP_200_OK)
-async def get_slack_channels(
-    organization_id: Optional[UUID] = None,
-    db: AsyncSession = Depends(get_db)
-):
-    """Retrieve connected Slack workspace channels."""
-    org_id = organization_id or DEFAULT_ORG_ID
-    return {
-        "organization_id": str(org_id),
-        "total_channels": 4,
-        "channels": [
-            {"id": "C01ABCDEF01", "name": "proj-ai-tpm", "is_private": False, "members_count": 14, "topic": "AI-TPM Architecture & Sprint Standups"},
-            {"id": "C01ABCDEF02", "name": "dev-engineering", "is_private": False, "members_count": 28, "topic": "General Engineering Discussions"},
-            {"id": "C01ABCDEF03", "name": "alerts-production", "is_private": True, "members_count": 8, "topic": "Production System & Security Alerts"},
-            {"id": "C01ABCDEF04", "name": "releases-changelog", "is_private": False, "members_count": 45, "topic": "Release Announcements"}
-        ]
-    }
-
-
 @router.get("/slack/messages", status_code=status.HTTP_200_OK)
 async def get_slack_messages(
-    organization_id: Optional[UUID] = None,
-    channel_id: Optional[str] = "C01ABCDEF01",
-    db: AsyncSession = Depends(get_db)
+    channel_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    """Retrieve recent messages and bot notifications in a Slack channel."""
-    org_id = organization_id or DEFAULT_ORG_ID
+    """Retrieve real recent messages for a channel already mapped to one of this org's
+    projects (Phase 63), via the org's real Slack bot token."""
+    service = IntegrationService(db)
+    try:
+        messages = await service.get_slack_messages_for_channel(current_user.organization_id, channel_id)
+    except LookupError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     return {
-        "organization_id": str(org_id),
+        "organization_id": str(current_user.organization_id),
         "channel_id": channel_id,
-        "total_messages": 4,
-        "messages": [
-            {"ts": "1721890000.000100", "user": "U0112233", "user_name": "Dinuka Shavi", "text": "Successfully merged PR #42 (Multi-Dimensional Rate Limiter & Token Bucket).", "timestamp": "2026-07-25T08:30:00Z"},
-            {"ts": "1721886400.000200", "user": "USLACKBOT", "user_name": "AI-TPM Bot", "text": "🤖 AI Risk Alert: Delivery risk index is low (0.15). Sprint completion predicted on track.", "timestamp": "2026-07-25T07:30:00Z"},
-            {"ts": "1721882800.000300", "user": "U0112244", "user_name": "Dev Lead", "text": "Master QA regression suite ran with 34/34 passing test suites.", "timestamp": "2026-07-25T06:30:00Z"},
-            {"ts": "1721879200.000400", "user": "U0112255", "user_name": "Frontend Lead", "text": "Next.js 15 dark glassmorphism dashboard build succeeded.", "timestamp": "2026-07-25T05:30:00Z"}
-        ]
+        "total_messages": len(messages),
+        "messages": messages,
     }
 
 
 @router.get("/slack/users", status_code=status.HTTP_200_OK)
 async def get_slack_users(
-    organization_id: Optional[UUID] = None,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    """Retrieve active Slack workspace team members."""
-    org_id = organization_id or DEFAULT_ORG_ID
+    """Retrieve real active Slack workspace team members (Phase 63), via the org's real Slack
+    bot token. Org-wide -- workspace membership isn't a per-project concept."""
+    service = IntegrationService(db)
+    try:
+        users = await service.get_slack_users_for_org(current_user.organization_id)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     return {
-        "organization_id": str(org_id),
-        "total_users": 3,
-        "users": [
-            {"id": "U0112233", "name": "dinuka.shavi", "real_name": "Dinuka Shavi", "role": "Lead Architect", "is_bot": False, "status_text": "Coding AI-TPM Backend"},
-            {"id": "U0112244", "name": "dev.lead", "real_name": "Dev Lead", "role": "Senior Engineer", "is_bot": False, "status_text": "Reviewing PRs"},
-            {"id": "U0112255", "name": "frontend.lead", "real_name": "Frontend Lead", "role": "UI Architect", "is_bot": False, "status_text": "Building Next.js 15 UI"}
-        ]
+        "organization_id": str(current_user.organization_id),
+        "total_users": len(users),
+        "users": users,
     }
 
 
 @router.get("/slack/activity", status_code=status.HTTP_200_OK)
 async def get_slack_activity_analysis(
-    organization_id: Optional[UUID] = None,
-    db: AsyncSession = Depends(get_db)
+    channel_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    """Retrieve team activity & discussion sentiment analytics."""
-    org_id = organization_id or DEFAULT_ORG_ID
+    """Retrieve real activity analytics for a channel already mapped to one of this org's
+    projects (Phase 72). `activity_by_hour`/`message_count` are computed directly from real
+    message timestamps; `sentiment_score`/`top_discussed_topics` come from a real LLM call over
+    the real message text, honestly None/[] rather than fabricated when unavailable."""
+    service = IntegrationService(db)
+    try:
+        messages = await service.get_slack_messages_for_channel(current_user.organization_id, channel_id)
+    except LookupError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    activity_service = SlackActivityService()
+    sentiment = await activity_service.analyze_sentiment_and_topics(messages)
     return {
-        "organization_id": str(org_id),
-        "daily_message_volume": 142,
-        "sentiment_score": 0.88,
-        "top_discussed_topics": ["pgvector migration", "OpenTelemetry tracing", "Multi-tenant RLS"],
-        "activity_by_hour": [
-            {"hour": "08:00", "messages": 12},
-            {"hour": "10:00", "messages": 45},
-            {"hour": "12:00", "messages": 28},
-            {"hour": "14:00", "messages": 35},
-            {"hour": "16:00", "messages": 22}
-        ]
+        "organization_id": str(current_user.organization_id),
+        "channel_id": channel_id,
+        "message_count": len(messages),
+        "activity_by_hour": activity_service.compute_activity_by_hour(messages),
+        **sentiment,
     }
 
 
@@ -908,6 +639,7 @@ async def create_calendar_meeting(
             start_time=payload.start_time,
             end_time=payload.end_time,
             attendee_emails=payload.attendee_emails,
+            attendee_user_ids=payload.attendee_user_ids,
             description=payload.description,
             user_id=current_user.id,
         )
@@ -924,6 +656,7 @@ async def create_calendar_meeting(
         "start_time": meeting.start_time.isoformat(),
         "end_time": meeting.end_time.isoformat(),
         "attendees": meeting.attendees,
+        "meet_link": meeting.meet_link,
     }
 
 
@@ -935,8 +668,8 @@ async def list_calendar_meetings(
 ):
     """List Synced Calendar Meetings for a project (database_schema_design.md section 19,
     ui_ux_design.md section 10 Calendar page). Reads the real Meeting rows written by
-    POST /calendar/sync -- distinct from the hardcoded, unauthenticated GET /google/meetings
-    mock below, which returns fixed sample data regardless of tenant or actual sync state."""
+    POST /calendar/sync, including each meeting's real Google Meet link when it has one
+    (Phase 65)."""
     service = IntegrationService(db)
     try:
         meetings = await service.list_meetings(
@@ -956,62 +689,38 @@ async def list_calendar_meetings(
                 "start_time": m.start_time.isoformat(),
                 "end_time": m.end_time.isoformat(),
                 "attendees": m.attendees,
+                "meet_link": m.meet_link,
             }
             for m in meetings
         ],
     }
 
 
-@router.get("/google/events", status_code=status.HTTP_200_OK)
-async def get_google_events(
-    organization_id: Optional[UUID] = None,
-    db: AsyncSession = Depends(get_db)
+@router.get("/calendar/availability", status_code=status.HTTP_200_OK)
+async def get_calendar_availability(
+    start_date: datetime,
+    end_date: datetime,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    """Retrieve team calendar events and sprint milestone sync."""
-    org_id = organization_id or DEFAULT_ORG_ID
+    """Real team availability across the org's real members (Phase 65), via Google Calendar's
+    freeBusy.query API -- replaces the mock GET /google/availability."""
+    service = IntegrationService(db)
+    try:
+        slots = await service.get_team_availability(current_user.organization_id, start_date, end_date)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     return {
-        "organization_id": str(org_id),
-        "total_events": 4,
-        "events": [
-            {"id": "evt-101", "summary": "Sprint 14 Planning & Standup", "start_time": "2026-07-26T09:00:00Z", "end_time": "2026-07-26T09:30:00Z", "organizer": "dinuka@example.com", "location": "Google Meet", "attendees_count": 5},
-            {"id": "evt-102", "summary": "Architecture Review: OpenTelemetry & RLS", "start_time": "2026-07-26T14:00:00Z", "end_time": "2026-07-26T15:00:00Z", "organizer": "architect@example.com", "location": "Google Meet", "attendees_count": 4},
-            {"id": "evt-103", "summary": "Mid-Sprint Retrospective", "start_time": "2026-07-28T16:00:00Z", "end_time": "2026-07-28T17:00:00Z", "organizer": "pm@example.com", "location": "Google Meet", "attendees_count": 6},
-            {"id": "evt-104", "summary": "Production Blue/Green Deployment Window", "start_time": "2026-08-01T10:00:00Z", "end_time": "2026-08-01T11:30:00Z", "organizer": "devops@example.com", "location": "War Room", "attendees_count": 3}
-        ]
+        "organization_id": str(current_user.organization_id),
+        "available_slots": slots,
     }
 
 
-@router.get("/google/meetings", status_code=status.HTTP_200_OK)
-async def get_google_meetings(
-    organization_id: Optional[UUID] = None,
-    db: AsyncSession = Depends(get_db)
-):
-    """Retrieve scheduled Google Meet links and agenda items."""
-    org_id = organization_id or DEFAULT_ORG_ID
-    return {
-        "organization_id": str(org_id),
-        "meetings": [
-            {"meeting_id": "meet-a1b2", "title": "Daily Sprint Standup", "join_url": "https://meet.google.com/abc-defg-hij", "start_time": "2026-07-26T09:00:00Z", "status": "scheduled"},
-            {"meeting_id": "meet-c3d4", "title": "Architecture Deep Dive", "join_url": "https://meet.google.com/klm-nopq-rst", "start_time": "2026-07-26T14:00:00Z", "status": "scheduled"}
-        ]
-    }
-
-
-@router.get("/google/availability", status_code=status.HTTP_200_OK)
-async def get_google_availability(
-    organization_id: Optional[UUID] = None,
-    db: AsyncSession = Depends(get_db)
-):
-    """Retrieve team availability matrix for automated meeting scheduling."""
-    org_id = organization_id or DEFAULT_ORG_ID
-    return {
-        "organization_id": str(org_id),
-        "available_slots": [
-            {"date": "2026-07-26", "slot": "11:00 AM - 12:00 PM UTC", "participants_available": ["Dinuka Shavi", "Dev Lead", "Frontend Lead"]},
-            {"date": "2026-07-26", "slot": "03:00 PM - 04:00 PM UTC", "participants_available": ["Dinuka Shavi", "Dev Lead"]},
-            {"date": "2026-07-27", "slot": "10:00 AM - 11:00 AM UTC", "participants_available": ["Dinuka Shavi", "Frontend Lead"]}
-        ]
-    }
+# GET /google/events was removed here (Phase 67) -- dead code, no frontend caller since the
+# real GET /calendar/meetings (Phase 50/56) covers the same real synced-events concept.
+# GET /google/meetings and GET /google/availability were removed here (Phase 65) -- both are
+# now real: GET /calendar/meetings includes each meeting's real meet_link, and
+# GET /calendar/availability computes real availability from Google's freeBusy.query API.
 
 
 
