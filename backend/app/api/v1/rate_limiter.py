@@ -1,6 +1,8 @@
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel
 from typing import Dict, Any, Optional
+from app.api.deps import get_current_user
+from app.models.tenant import User
 from app.core.rate_limiter import get_rate_limiter, RateLimitDimension
 
 router = APIRouter(prefix="/rate-limit", tags=["Multi-Dimensional Rate Limiting"])
@@ -11,7 +13,7 @@ class ConsumeTokenRequest(BaseModel):
     tokens_needed: float = 1.0
 
 @router.post("/check")
-async def check_rate_limit(payload: ConsumeTokenRequest, response: Response):
+async def check_rate_limit(payload: ConsumeTokenRequest, response: Response, current_user: User = Depends(get_current_user)):
     """Check and consume tokens from the token bucket for a specified dimension and identifier."""
     limiter = get_rate_limiter()
     try:
@@ -35,7 +37,7 @@ async def check_rate_limit(payload: ConsumeTokenRequest, response: Response):
     return meta
 
 @router.get("/status/{dimension}/{identifier}")
-async def get_bucket_status(dimension: str, identifier: str):
+async def get_bucket_status(dimension: str, identifier: str, current_user: User = Depends(get_current_user)):
     """Fetch current bucket capacity and remaining token count."""
     limiter = get_rate_limiter()
     try:

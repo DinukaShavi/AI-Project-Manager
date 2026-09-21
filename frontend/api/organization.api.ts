@@ -2,6 +2,7 @@ import { httpClient } from "./client";
 import {
   OrganizationSettings,
   OrganizationMembersResponse,
+  MemberDirectoryResponse,
   CreateOrganizationRequest,
   CreateOrganizationResponse,
   CreateInvitationRequest,
@@ -19,6 +20,11 @@ export const organizationApi = {
 
   listMembers: async (): Promise<OrganizationMembersResponse> => {
     return httpClient<OrganizationMembersResponse>("/organizations/members");
+  },
+
+  // Self-service (Phase 64) -- any org member, for picking real teammates as meeting attendees.
+  listMembersDirectory: async (): Promise<MemberDirectoryResponse> => {
+    return httpClient<MemberDirectoryResponse>("/organizations/members/directory");
   },
 
   createOrganization: async (payload: CreateOrganizationRequest): Promise<CreateOrganizationResponse> => {

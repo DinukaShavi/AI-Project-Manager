@@ -41,6 +41,25 @@ class ExternalIdentityService:
         )
         return list(res.scalars().all())
 
+    async def resolve_user_by_external_account(
+        self, organization_id: UUID, provider: str, external_account_id: str
+    ) -> Optional[UUID]:
+        """Reverse lookup: given a real external account id observed on an inbound event
+        (a GitHub numeric user id, a Jira accountId), resolve it to the real AI-TPM user_id
+        it's linked to, if any -- the read side of link_identity. Used by
+        ContextIngestionService to resolve knowledge-graph ASSIGNED_TO edges to real users
+        (Phase 75) instead of the external identifier alone."""
+        res = await self.session.execute(
+            select(ExternalIdentity).where(
+                ExternalIdentity.organization_id == organization_id,
+                ExternalIdentity.provider == provider,
+                ExternalIdentity.external_account_id == external_account_id,
+                ExternalIdentity.is_active == True,
+            )
+        )
+        identity = res.scalar_one_or_none()
+        return identity.user_id if identity else None
+
     async def link_identity(
         self,
         organization_id: UUID,

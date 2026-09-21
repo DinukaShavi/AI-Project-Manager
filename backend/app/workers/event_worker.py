@@ -5,10 +5,12 @@ from app.core.config import settings
 from app.db.session import SessionLocal
 from app.services.outbox import OutboxService
 from app.services.integration import IntegrationService
+from app.services.context_ingestion import ContextIngestionService
 from app.events.redis_bus import get_event_bus
 from app.core.distributed_lock import get_lock_manager
 
 CALENDAR_POLLER_LOCK_KEY = "calendar_poller_cycle"
+CONTEXT_INGESTION_STREAMS = ("github_stream", "jira_stream", "slack_stream")
 
 class BackgroundEventWorker:
     def __init__(self):
@@ -19,6 +21,7 @@ class BackgroundEventWorker:
         self.task = None
         self.backup_sync_task = None
         self.calendar_poller_task = None
+        self.context_ingestion_tasks = []
 
     async def start(self) -> None:
         """Connect the Event Bus and launch the background polling loops."""
@@ -34,12 +37,31 @@ class BackgroundEventWorker:
         # every 15 minutes fetching updated meetings" -- Calendar's only real sync path,
         # since it's documented as polling-driven rather than webhook-driven).
         self.calendar_poller_task = asyncio.create_task(self._calendar_poller_loop())
-        logger.info("Background event worker, Outbox publisher, Jira backup-sync poller, and Calendar poller started.")
+        # Subscribe the Context Ingestion consumer to every stream that can carry indexable
+        # text (real GitHub/Jira/Slack activity) so the Context Engine's vector store reflects
+        # real integration activity automatically, not only what's manually POSTed to
+        # /context/index. Calendar push notifications carry no event data (poller-only sync
+        # path, see IntegrationService docstrings), so calendar_stream is intentionally excluded.
+        context_ingestion_service = ContextIngestionService()
+        for stream_name in CONTEXT_INGESTION_STREAMS:
+            self.context_ingestion_tasks.append(
+                asyncio.create_task(
+                    self.event_bus.subscribe(
+                        stream_name, "context_engine", f"context_engine_{stream_name}",
+                        context_ingestion_service.handle_event,
+                    )
+                )
+            )
+        logger.info(
+            "Background event worker, Outbox publisher, Jira backup-sync poller, Calendar poller, "
+            "and Context Ingestion consumer started."
+        )
 
     async def stop(self) -> None:
         """Cancel background loops and disconnect the Event Bus broker connection."""
         self.is_running = False
-        for task in (self.task, self.backup_sync_task, self.calendar_poller_task):
+        all_tasks = [self.task, self.backup_sync_task, self.calendar_poller_task, *self.context_ingestion_tasks]
+        for task in all_tasks:
             if task:
                 task.cancel()
                 try:

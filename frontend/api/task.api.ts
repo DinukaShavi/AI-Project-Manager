@@ -1,5 +1,5 @@
 import { httpClient } from "./client";
-import { TasksResponse, TaskItem, CreateTaskRequest, UpdateTaskRequest } from "./types";
+import { TasksResponse, TaskItem, CreateTaskRequest } from "./types";
 
 export const taskApi = {
   getProjectTasks: async (projectId: string): Promise<TasksResponse> => {
@@ -18,16 +18,5 @@ export const taskApi = {
       method: "PUT",
       body: JSON.stringify({ status }),
     });
-  },
-
-  updateTaskDetails: async (taskId: string, payload: UpdateTaskRequest): Promise<TaskItem> => {
-    return httpClient<TaskItem>(`/tasks/${taskId}`, {
-      method: "PUT",
-      body: JSON.stringify(payload),
-    });
-  },
-
-  getTaskById: async (taskId: string): Promise<TaskItem> => {
-    return httpClient<TaskItem>(`/tasks/${taskId}`);
   },
 };

@@ -8,6 +8,7 @@ from app.api.deps import get_db, get_current_user
 from app.models.tenant import User
 from app.models.project import Project
 from app.services.context import ContextEngineService
+from app.services.context_snapshot import ContextSnapshotService
 from app.context.graph import ProjectKnowledgeGraph
 
 router = APIRouter()
@@ -73,7 +74,8 @@ async def search_context(
         organization_id=current_user.organization_id,
         query_text=search_q,
         project_id=payload.project_id,
-        top_k=payload.top_k
+        top_k=payload.top_k,
+        rerank=True,
     )
     return {
         "query": search_q,
@@ -105,3 +107,45 @@ async def get_project_graph(
             for edge in graph.edges
         ]
     }
+
+def _serialize_snapshot(snapshot) -> Dict[str, Any]:
+    return {
+        "id": str(snapshot.id),
+        "project_id": str(snapshot.project_id),
+        "snapshot_timestamp": snapshot.snapshot_timestamp.isoformat(),
+        "state_payload": snapshot.state_payload,
+    }
+
+@router.get("/projects/{project_id}/snapshot", status_code=status.HTTP_200_OK)
+async def get_project_snapshot(
+    project_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Retrieve the most recent real ContextSnapshot for a project (Phase 68) -- a templated
+    summary of real recent activity and real knowledge graph bottlenecks, regenerated
+    automatically as real GitHub/Jira/Slack events are ingested. 404 if the project has no
+    snapshot yet (no real activity has been indexed for it), matching the honest-empty-state
+    convention used elsewhere in this codebase rather than fabricating one."""
+    await _verify_project_ownership(db, project_id, current_user.organization_id)
+    service = ContextSnapshotService(db)
+    snapshot = await service.get_latest_snapshot(current_user.organization_id, project_id)
+    if not snapshot:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No snapshot exists yet for this project.")
+    return _serialize_snapshot(snapshot)
+
+@router.post("/projects/{project_id}/snapshot", status_code=status.HTTP_201_CREATED)
+async def create_project_snapshot(
+    project_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Regenerate a project's ContextSnapshot on demand (Phase 68) -- bypasses the 15-minute
+    auto-regeneration throttle for the "I want a fresh one now" case."""
+    await _verify_project_ownership(db, project_id, current_user.organization_id)
+    service = ContextSnapshotService(db)
+    try:
+        snapshot = await service.generate_snapshot(current_user.organization_id, project_id)
+    except LookupError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    return _serialize_snapshot(snapshot)

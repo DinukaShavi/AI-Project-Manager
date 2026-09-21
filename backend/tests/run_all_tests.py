@@ -68,11 +68,31 @@ from tests.test_integration_audit_logging import test_integration_audit_logging_
 from tests.test_calendar_meetings_read import test_calendar_meetings_read_flow
 from tests.test_recommendation_actions import test_recommendation_actions_flow
 from tests.test_organization_invitations import test_organization_invitations_flow
+from tests.test_tool_approval_workflow import test_tool_approval_workflow_flow
+from tests.test_event_dlq import test_event_dlq_flow
 from tests.test_external_identity import test_external_identity_flow
 from tests.test_github_discovery_identity import test_github_discovery_identity_flow
 from tests.test_jira_identity_resolution import test_jira_identity_resolution_flow
 from tests.test_calendar_event_creation import test_calendar_event_creation_flow
 from tests.test_slack_discovery import test_slack_discovery_flow
+from tests.test_context_ingestion import test_context_ingestion_flow
+from tests.test_knowledge_graph_ingestion import test_knowledge_graph_ingestion_flow
+from tests.test_webhook_security import test_webhook_security_flow
+from tests.test_github_real_dashboard_data import test_github_real_dashboard_data_flow
+from tests.test_jira_real_issues_sprints import test_jira_real_issues_sprints_flow
+from tests.test_slack_real_users_messages import test_slack_real_users_messages_flow
+from tests.test_calendar_attendee_resolution import test_calendar_attendee_resolution_flow
+from tests.test_calendar_meet_links_availability import test_calendar_meet_links_availability_flow
+from tests.test_realtime_activity_push import test_realtime_activity_push_flow
+from tests.test_context_snapshot_population import test_context_snapshot_population_flow
+from tests.test_real_agent_step_execution import test_real_agent_step_execution_flow
+from tests.test_llm_plan_decomposition import test_llm_plan_decomposition_flow
+from tests.test_jira_velocity_workload_slack_activity import test_jira_velocity_workload_slack_activity_flow
+from tests.test_calendar_context_ingestion import test_calendar_context_ingestion_flow
+from tests.test_jira_task_sync import test_jira_task_sync_flow
+from tests.test_broadened_tool_actions import test_broadened_tool_actions_flow
+from tests.test_search_reranking import test_search_reranking_flow
+from tests.test_real_monte_carlo_forecast import test_real_monte_carlo_forecast_flow
 
 async def run_master_qa_suite():
     print("========================================================================")
@@ -81,7 +101,6 @@ async def run_master_qa_suite():
     
     start_time = time.time()
     passed_suites = 0
-    total_suites = 71
 
     test_suites = [
         ("Phase 1: Database Foundation", test_db_operations),
@@ -155,7 +174,29 @@ async def run_master_qa_suite():
         ("Phase 55: Jira Site & Identity Resolution (real api.atlassian.com/me + accessible-resources calls on OAuth connect, per-org site capture)", test_jira_identity_resolution_flow),
         ("Phase 56: Google Calendar Event Creation (real POST .../events write path, immediate read-back, tenant-isolated)", test_calendar_event_creation_flow),
         ("Phase 57: Slack Channel Discovery (real conversations.list call, discover-channels, mapped-channels, tenant-isolated)", test_slack_discovery_flow),
+        ("Phase 58: Context Ingestion Consumer (real Event Bus subscription indexing GitHub/Jira/Slack activity into the Context Engine, idempotent, tenant-isolated)", test_context_ingestion_flow),
+        ("Phase 59: Knowledge Graph Edge Auto-Population (RESOLVES/ASSIGNED_TO edges from real GitHub/Jira activity, upsert-idempotent, tenant-isolated)", test_knowledge_graph_ingestion_flow),
+        ("Phase 60: Webhook Security Hardening (per-org token URLs, fail-closed signature verification, admin-gated webhook-url read, tenant-isolated)", test_webhook_security_flow),
+        ("Phase 61: Real GitHub Dashboard Data (pull-requests/commits/issues via linked repos, project-scoped, tenant-isolated)", test_github_real_dashboard_data_flow),
+        ("Phase 62: Real Jira Issues & Sprints (per-organization OAuth, best-effort story points, tenant-isolated)", test_jira_real_issues_sprints_flow),
+        ("Phase 63: Real Slack Users & Messages (users.list, conversations.history via mapped channels, tenant-isolated)", test_slack_real_users_messages_flow),
+        ("Phase 64: Calendar Attendee Resolution (self-service member directory, real teammate email resolution, tenant-isolated)", test_calendar_attendee_resolution_flow),
+        ("Phase 65: Real Google Meet Links & Team Availability (conferenceData creation, freeBusy.query, mock endpoints retired, tenant-isolated)", test_calendar_meet_links_availability_flow),
+        ("Phase 66: Real-Time Activity Push (activity_update WebSocket broadcast from real ingested GitHub/Jira/Slack events, tenant-isolated)", test_realtime_activity_push_flow),
+        ("Phase 68: ContextSnapshot Population (templated real-data summaries, throttled auto-regeneration, on-demand endpoint, tenant-isolated)", test_context_snapshot_population_flow),
+        ("Phase 69: Real Agent Step Execution (ProjectIntelligenceEngine plan steps run via the real AgentService LLM path, grounded in real context, no-db fallback preserved)", test_real_agent_step_execution_flow),
+        ("Phase 71: Real LLM-Driven Plan Decomposition (HTNPlanner.decompose_goal_async via ModelRouter's DAG_GENERATION route, validated against real agent/tool targets, exact keyword-template fallback)", test_llm_plan_decomposition_flow),
+        ("Phase 72: Real Jira Workload/Velocity & Slack Activity (real per-assignee point aggregation, real per-sprint velocity reconstruction, real message-timestamp bucketing + LLM sentiment/topics with honest fallback, tenant-isolated)", test_jira_velocity_workload_slack_activity_flow),
+        ("Phase 73: Calendar Joins the Centralized Context Pipeline (real synced/created meetings indexed as ContextChunks, real ATTENDS graph edges, ContextSnapshot regeneration -- same pipeline GitHub/Jira/Slack already share)", test_calendar_context_ingestion_flow),
+        ("Phase 76: Real Jira Issue -> ProjectTask One-Way Sync (title/status/assignee mirrored from real Jira issues via both webhook and backup-sync paths, never downgrades on missing data, tenant-isolated)", test_jira_task_sync_flow),
+        ("Phase 77: Broaden the Real Tool-Action Set (5 new real GitHub/Jira/Slack write actions -- PR comment, PR merge with approval gate, Jira issue create/comment with real ADF, Slack thread reply -- discovered automatically by Phase 71's LLM planning path)", test_broadened_tool_actions_flow),
+        ("Phase 78: Real Search Reranking (opt-in LLM relevance pass over real vector search results, exact reorder verified, safe fallback on failure/invalid indices, wired into ContextSearchTool)", test_search_reranking_flow),
+        ("Phase 80: Real Monte Carlo Forecast Inputs (process_goal grounds velocity/remaining-points in real Jira velocity and real ProjectTask sums when the caller doesn't override, transparent forecast_data_source labeling, honest fallback preserved)", test_real_monte_carlo_forecast_flow),
+        ("Phase 87: Event Bus Dead Letter Queue (Milestone 4 -- retry bookkeeping now persists, poison events route to the DLQ after 5 attempts and stop being polled, admin-only tenant-scoped GET /events/dlq + requeue)", test_event_dlq_flow),
+        ("Phase 86: Real Human-in-the-Loop Tool Approval (Milestone 12 -- persisted single-use grants replacing the any-string bypass; spec-derived approver roles, four-eyes, parameter binding, tenant scoping, expiry, replay protection)", test_tool_approval_workflow_flow),
     ]
+
+    total_suites = len(test_suites)
 
 
 

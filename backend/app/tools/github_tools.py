@@ -55,6 +55,78 @@ class GitHubCreateIssueTool(BaseTool):
             return {"status": "error", "repo": repo, "title": title, "message": str(e)}
 
 
+class GitHubCommentOnPRTool(BaseTool):
+    def __init__(self):
+        super().__init__(
+            name="github_comment_on_pr",
+            description="Post a comment on a GitHub pull request.",
+            parameters_schema={
+                "type": "object",
+                "properties": {
+                    "organization_id": {"type": "string", "description": "Organization UUID (used to resolve the connected GitHub OAuth token)"},
+                    "repo": {"type": "string", "description": "Repository full name e.g. owner/repo"},
+                    "pr_number": {"type": "integer", "description": "Pull request number"},
+                    "body": {"type": "string", "description": "Comment body markdown"},
+                },
+                "required": ["organization_id", "repo", "pr_number", "body"],
+            },
+        )
+
+    async def execute(self, params: Dict[str, Any], session: Optional[AsyncSession] = None) -> Dict[str, Any]:
+        self.validate_parameters(params)
+        repo = params["repo"]
+        pr_number = params["pr_number"]
+
+        try:
+            connector = await _get_github_connector(session, params["organization_id"])
+            comment = await connector.comment_on_pr(repo=repo, pr_number=pr_number, body=params["body"])
+            return {
+                "status": "success",
+                "repo": repo,
+                "pr_number": pr_number,
+                "comment_id": comment.get("id"),
+                "url": comment.get("html_url"),
+            }
+        except Exception as e:
+            return {"status": "error", "repo": repo, "pr_number": pr_number, "message": str(e)}
+
+
+class MergePullRequestTool(BaseTool):
+    def __init__(self):
+        super().__init__(
+            name="merge_pull_request",
+            description="Merge a GitHub pull request. High-risk side-effect action requiring approval.",
+            parameters_schema={
+                "type": "object",
+                "properties": {
+                    "organization_id": {"type": "string", "description": "Organization UUID (used to resolve the connected GitHub OAuth token)"},
+                    "repo": {"type": "string", "description": "Repository full name e.g. owner/repo"},
+                    "pr_number": {"type": "integer", "description": "Pull request number"},
+                    "commit_message": {"type": "string", "description": "Optional merge commit message"},
+                },
+                "required": ["organization_id", "repo", "pr_number"],
+            },
+        )
+
+    async def execute(self, params: Dict[str, Any], session: Optional[AsyncSession] = None) -> Dict[str, Any]:
+        self.validate_parameters(params)
+        repo = params["repo"]
+        pr_number = params["pr_number"]
+
+        try:
+            connector = await _get_github_connector(session, params["organization_id"])
+            result = await connector.merge_pull_request(repo=repo, pr_number=pr_number, commit_message=params.get("commit_message", ""))
+            return {
+                "status": "success",
+                "repo": repo,
+                "pr_number": pr_number,
+                "merged": result.get("merged", False),
+                "sha": result.get("sha"),
+            }
+        except Exception as e:
+            return {"status": "error", "repo": repo, "pr_number": pr_number, "message": str(e), "merged": False}
+
+
 class GitHubGetPRDiffTool(BaseTool):
     def __init__(self):
         super().__init__(

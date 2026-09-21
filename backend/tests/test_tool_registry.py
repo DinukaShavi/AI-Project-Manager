@@ -1,15 +1,17 @@
 import asyncio
 import uuid
+from unittest.mock import patch
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy import select
 
 import app.db.base # Register models
 from app.main import app
-from app.models.tenant import Organization
+from app.models.tenant import Organization, User
 from app.models.agent import AgentExecution, ToolExecution
 from app.tools.registry import get_tool_registry
 from app.services.tool import ToolService
 from app.db.session import SessionLocal
+from app.core.rbac_pdp import PolicyDecisionPoint
 from tests._auth_helpers import create_authenticated_headers
 
 async def test_tool_registry_flow():
@@ -142,19 +144,50 @@ async def test_tool_registry_flow():
             assert "approval_id" in gate_json
             print("SUCCESS: High-risk tool call correctly suspended pending human approval, not executed.")
 
-            # 7. Test HITL Approval Gate: supplying approval_token bypasses suspension and proceeds to execution
-            print("\nTest 7: Requesting POST /api/v1/tools/execute for the same tool WITH an approval_token...")
+            # 7. Test HITL Approval Gate: an invented approval_token must NOT satisfy it.
+            #    Before Phase 86 this test passed the literal string "approved-by-test" and
+            #    expected execution to proceed -- which is exactly the bypass the Milestone 12
+            #    audit found: `if requires_approval(tool) and not approval_token` accepted any
+            #    truthy string. Approval is now a real, persisted, single-use ToolApproval
+            #    grant, so a made-up token is refused. The full grant lifecycle (authority
+            #    rules, four-eyes, parameter binding, replay/expiry/tenant scoping) is covered
+            #    by test_tool_approval_workflow.py.
+            print("\nTest 7: Requesting POST /api/v1/tools/execute for the same tool with a FORGED approval_token...")
             res = await client.post(
                 "/api/v1/tools/execute",
-                json={"tool_name": "merge_pull_request", "parameters": {"pr_number": 42}, "approval_token": "approved-by-test"},
+                json={"tool_name": "merge_pull_request", "parameters": {"repo": "acme/ai-tpm", "pr_number": 42}, "approval_token": "approved-by-test"},
                 headers=auth_headers
             )
-            # merge_pull_request is not a registered tool in this codebase (only github/jira/slack/context tools
-            # are), so a granted approval correctly reaches tool discovery and 404s there — proving the approval
-            # gate itself was bypassed rather than re-suspending, without fabricating a successful execution for
-            # a tool that doesn't actually exist.
-            assert res.status_code == 404, f"Expected tool-not-found after approval, got {res.status_code}: {res.text}"
-            print("SUCCESS: Approval token correctly bypassed the HITL gate and reached tool execution.")
+            assert res.status_code == 403, (
+                f"A forged approval token must be rejected, got {res.status_code}: {res.text}"
+            )
+            assert "invalid approval token" in res.json()["detail"].lower()
+            print("SUCCESS: A forged approval token was rejected -- the HITL gate is no longer bypassable.")
+
+            # 8. Test that the real authenticated caller's user_id reaches the PDP's
+            # authorization request instead of a fabricated random UUID (Phase 85).
+            print("\nTest 8: Verifying the real caller's user_id reaches the RBAC PDP request, not a fabricated one...")
+            async with SessionLocal() as session:
+                user_row = (await session.execute(select(User).where(User.organization_id == test_org_id))).scalar_one()
+                res_user = user_row.id
+            captured_requests = []
+            original_evaluate = PolicyDecisionPoint.evaluate_tool_call
+
+            def capturing_evaluate(self, request):
+                captured_requests.append(request)
+                return original_evaluate(self, request)
+
+            with patch.object(PolicyDecisionPoint, "evaluate_tool_call", new=capturing_evaluate):
+                res_pdp = await client.post(
+                    "/api/v1/tools/execute",
+                    json={"tool_name": "context_search", "parameters": {"organization_id": str(test_org_id), "query": "pdp user_id check", "top_k": 1}},
+                    headers=auth_headers,
+                )
+            assert res_pdp.status_code == 200, f"Endpoint failed: {res_pdp.text}"
+            assert len(captured_requests) == 1
+            assert captured_requests[0].user_id == str(res_user), \
+                f"Expected the real caller's user_id ({res_user}) on the PDP request, got: {captured_requests[0].user_id}"
+            print("SUCCESS: The real authenticated caller's user_id reached the PDP request, not a fabricated random UUID.")
 
         finally:
             # Clean up database records

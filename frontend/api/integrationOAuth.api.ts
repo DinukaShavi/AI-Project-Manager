@@ -20,4 +20,12 @@ export const integrationOAuthApi = {
       method: "DELETE",
     });
   },
+
+  // OrgAdmin/SuperAdmin only (backend-enforced). Returns the org's real, unguessable
+  // per-provider webhook path (/api/v1/webhooks/{provider}/{token}) to paste into the
+  // provider's own webhook configuration -- there is no client-supplied organization_id or
+  // secret involved anywhere in that URL.
+  getWebhookUrl: async (provider: string): Promise<{ provider: string; webhook_path: string }> => {
+    return httpClient<{ provider: string; webhook_path: string }>(`/integrations/${provider}/webhook-url`);
+  },
 };

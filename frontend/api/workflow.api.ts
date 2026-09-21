@@ -8,12 +8,4 @@ export const workflowApi = {
       body: JSON.stringify(payload),
     });
   },
-
-  getTemplates: async (): Promise<{ templates: any[] }> => {
-    return httpClient<{ templates: any[] }>("/workflows/templates");
-  },
-
-  getExecutionStatus: async (executionId: string): Promise<any> => {
-    return httpClient<any>(`/workflows/executions/${executionId}`);
-  },
 };

@@ -1,6 +1,5 @@
 import { httpClient } from "./client";
 import {
-  SlackChannel,
   SlackMessage,
   SlackUser,
   SlackActivityAnalysis,
@@ -11,10 +10,6 @@ import {
 } from "../types/slack";
 
 export const slackApi = {
-  getChannels: async (orgId: string): Promise<{ channels: SlackChannel[] }> => {
-    return httpClient<{ channels: SlackChannel[] }>(`/integrations/slack/channels?organization_id=${orgId}`);
-  },
-
   mapChannelToProject: async (payload: SlackChannelMappingRequest): Promise<SlackChannelMappingResponse> => {
     return httpClient<SlackChannelMappingResponse>("/integrations/slack/mappings", {
       method: "POST",
@@ -30,15 +25,19 @@ export const slackApi = {
     return httpClient<MappedSlackChannelsResponse>(`/integrations/slack/mapped-channels?project_id=${projectId}`);
   },
 
-  getMessages: async (orgId: string, channelId: string = "C01ABCDEF01"): Promise<{ messages: SlackMessage[] }> => {
-    return httpClient<{ messages: SlackMessage[] }>(`/integrations/slack/messages?organization_id=${orgId}&channel_id=${channelId}`);
+  // Real (Phase 63) -- organization is derived from the authenticated JWT server-side.
+  // channelId must be one of the org's real mapped channels (see getMappedChannels).
+  getMessages: async (channelId: string): Promise<{ messages: SlackMessage[] }> => {
+    return httpClient<{ messages: SlackMessage[] }>(`/integrations/slack/messages?channel_id=${channelId}`);
   },
 
-  getUsers: async (orgId: string): Promise<{ users: SlackUser[] }> => {
-    return httpClient<{ users: SlackUser[] }>(`/integrations/slack/users?organization_id=${orgId}`);
+  getUsers: async (): Promise<{ users: SlackUser[] }> => {
+    return httpClient<{ users: SlackUser[] }>("/integrations/slack/users");
   },
 
-  getActivityAnalysis: async (orgId: string): Promise<SlackActivityAnalysis> => {
-    return httpClient<SlackActivityAnalysis>(`/integrations/slack/activity?organization_id=${orgId}`);
+  // Real, channel-scoped (Phase 72) -- activity_by_hour/message_count computed from real
+  // message timestamps; sentiment_score/top_discussed_topics from a real LLM call.
+  getActivityAnalysis: async (channelId: string): Promise<SlackActivityAnalysis> => {
+    return httpClient<SlackActivityAnalysis>(`/integrations/slack/activity?channel_id=${channelId}`);
   },
 };

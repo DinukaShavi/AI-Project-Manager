@@ -1,6 +1,8 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from typing import Dict, Any, Optional, List
+from app.api.deps import get_current_user
+from app.models.tenant import User
 from app.core.observability import get_observability_manager
 
 router = APIRouter(prefix="/observability", tags=["Observability & Distributed Tracing"])
@@ -12,7 +14,7 @@ class InjectSpanRequest(BaseModel):
     attributes: Optional[Dict[str, Any]] = None
 
 @router.get("/traces")
-async def export_open_telemetry_traces():
+async def export_open_telemetry_traces(current_user: User = Depends(get_current_user)):
     """Export collected OpenTelemetry JSON span trace records for Jaeger / Zipkin."""
     obs = get_observability_manager()
     traces = obs.export_traces()
@@ -22,13 +24,13 @@ async def export_open_telemetry_traces():
     }
 
 @router.get("/metrics")
-async def export_prometheus_metrics():
+async def export_prometheus_metrics(current_user: User = Depends(get_current_user)):
     """Export aggregated telemetry metrics summary for Prometheus scraping endpoints."""
     obs = get_observability_manager()
     return obs.get_metrics_summary()
 
 @router.post("/spans", status_code=status.HTTP_201_CREATED)
-async def inject_custom_span(payload: InjectSpanRequest):
+async def inject_custom_span(payload: InjectSpanRequest, current_user: User = Depends(get_current_user)):
     """Inject a custom span trace into the observability engine."""
     obs = get_observability_manager()
     ctx = obs.create_trace_context(correlation_id=payload.correlation_id)

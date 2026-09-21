@@ -270,3 +270,24 @@ async def list_organization_members(
             for m in members
         ]
     }
+
+
+@router.get("/members/directory", status_code=status.HTTP_200_OK)
+async def list_organization_members_directory(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Self-service (any authenticated org member, no admin gate) directory of the
+    authenticated user's organization, for picking real teammates as meeting attendees
+    (Phase 64) -- deliberately not the same endpoint as GET /members above, which is
+    OrgAdmin-gated and returns roles for the Settings Console's role table. Only id/email/
+    full_name are exposed here; no roles, since attendee-picking has no need for them."""
+    service = OrganizationService(db)
+    members = await service.list_members(current_user.organization_id)
+    return {
+        "members_count": len(members),
+        "members": [
+            {"id": str(m.id), "email": m.email, "full_name": m.full_name}
+            for m in members
+        ]
+    }

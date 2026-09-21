@@ -13,32 +13,6 @@ async def test_frontend_api_contract_flow():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
 
-        # 1. Test Observability API route contract
-        res_obs = await client.get("/api/v1/observability/metrics")
-        assert res_obs.status_code == 200
-        assert "telemetry_metrics" in res_obs.json()
-        print("SUCCESS: Frontend API contract verified for Observability metrics.")
-
-        # 2. Test Security API route contract
-        res_sec = await client.post("/api/v1/security/scan-prompt", json={"input_text": "safe prompt"})
-        assert res_sec.status_code == 200
-        assert "is_injection" in res_sec.json()
-        print("SUCCESS: Frontend API contract verified for Security prompt scanner.")
-
-        # 3. Test Rate Limiter API route contract
-        res_rl = await client.post("/api/v1/rate-limit/check", json={"dimension": "user", "identifier": "fe-user-1", "tokens_needed": 1.0})
-        assert res_rl.status_code == 200
-        assert "remaining" in res_rl.json()
-        print("SUCCESS: Frontend API contract verified for Rate Limiter token bucket.")
-
-        # 4. Test Model Router API route contract
-        res_mod = await client.get("/api/v1/models/matrix")
-        assert res_mod.status_code == 200
-        assert "routing_matrix" in res_mod.json()
-        print("SUCCESS: Frontend API contract verified for Model Router matrix.")
-
-        # 5. Test AI Cost Monitoring API route contract -- authenticated, organization_id
-        # derived from the caller (backend/app/api/v1/costs.py's IDOR fix).
         async with SessionLocal() as session:
             org = Organization(name=f"Contract Test Org {uuid.uuid4().hex[:6]}", domain=f"contract-{uuid.uuid4().hex[:6]}.com")
             session.add(org)
@@ -46,13 +20,41 @@ async def test_frontend_api_contract_flow():
             org_id = str(org.id)
             await session.commit()
         cost_headers = await create_authenticated_headers(client, org_id)
+
+        # 1. Test Observability API route contract -- authenticated (Phase 84).
+        res_obs = await client.get("/api/v1/observability/metrics", headers=cost_headers)
+        assert res_obs.status_code == 200
+        assert "telemetry_metrics" in res_obs.json()
+        print("SUCCESS: Frontend API contract verified for Observability metrics.")
+
+        # 2. Test Security API route contract -- authenticated (Phase 84).
+        res_sec = await client.post("/api/v1/security/scan-prompt", json={"input_text": "safe prompt"}, headers=cost_headers)
+        assert res_sec.status_code == 200
+        assert "is_injection" in res_sec.json()
+        print("SUCCESS: Frontend API contract verified for Security prompt scanner.")
+
+        # 3. Test Rate Limiter API route contract -- authenticated (Phase 84).
+        res_rl = await client.post("/api/v1/rate-limit/check", json={"dimension": "user", "identifier": "fe-user-1", "tokens_needed": 1.0}, headers=cost_headers)
+        assert res_rl.status_code == 200
+        assert "remaining" in res_rl.json()
+        print("SUCCESS: Frontend API contract verified for Rate Limiter token bucket.")
+
+        # 4. Test Model Router API route contract -- authenticated (Phase 84).
+        res_mod = await client.get("/api/v1/models/matrix", headers=cost_headers)
+        assert res_mod.status_code == 200
+        assert "routing_matrix" in res_mod.json()
+        print("SUCCESS: Frontend API contract verified for Model Router matrix.")
+
+        # 5. Test AI Cost Monitoring API route contract -- authenticated, organization_id
+        # derived from the caller (backend/app/api/v1/costs.py's IDOR fix).
         res_cost = await client.get(f"/api/v1/costs/summary/{org_id}", headers=cost_headers)
         assert res_cost.status_code == 200
         assert "total_cost_usd" in res_cost.json()
         print("SUCCESS: Frontend API contract verified for Cost Monitoring summary.")
 
-        # 6. Test Knowledge Graph Evolution API route contract
-        res_graph = await client.get("/api/v1/graph-evolution/traverse/node-1")
+        # 6. Test Knowledge Graph Evolution API route contract -- authenticated, organization_id
+        # derived from the caller (Phase 83 tenant-isolation fix).
+        res_graph = await client.get("/api/v1/graph-evolution/traverse/node-1", headers=cost_headers)
         assert res_graph.status_code == 200
         assert "active_outbound_edges" in res_graph.json()
         print("SUCCESS: Frontend API contract verified for Knowledge Graph traversal.")

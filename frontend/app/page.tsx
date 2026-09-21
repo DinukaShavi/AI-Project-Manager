@@ -5,6 +5,8 @@ import Link from "next/link";
 import Navbar from "../components/Navbar";
 import Sidebar from "../components/Sidebar";
 import { useAuth } from "../hooks/use-auth";
+import { useActivityFeedSocket } from "../hooks/useActivityFeedSocket";
+import { ContextSnapshot as ProjectContextSnapshot } from "../types/contextSnapshot";
 import {
   projectApi,
   taskApi,
@@ -24,6 +26,14 @@ type LoadState = "loading" | "empty" | "error" | "ready";
 export default function Dashboard() {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<string>("overview");
+  const { feed: activityFeed, socketState: activityFeedState } = useActivityFeedSocket();
+
+  // Real ContextSnapshot (Phase 68) -- a templated summary of the selected project's real
+  // recent activity + real knowledge graph bottlenecks. No snapshot yet is a normal, honest
+  // empty state (a 404), not an error -- most projects with no ingested activity have none.
+  const [snapshot, setSnapshot] = useState<ProjectContextSnapshot | null>(null);
+  const [snapshotState, setSnapshotState] = useState<LoadState>("loading");
+  const [regeneratingSnapshot, setRegeneratingSnapshot] = useState(false);
 
   // Real tenant/project context -- the authenticated user's own organization/projects,
   // never a hardcoded id (ui_ux_design.md §2 "Main Dashboard").
@@ -122,6 +132,39 @@ export default function Dashboard() {
       setTasksState("error");
     }
   }, [selectedProjectId]);
+
+  const loadSnapshot = useCallback(async () => {
+    if (!selectedProjectId) return;
+    setSnapshotState("loading");
+    try {
+      const data = await contextApi.getProjectSnapshot(selectedProjectId);
+      setSnapshot(data);
+      setSnapshotState("ready");
+    } catch (err) {
+      setSnapshot(null);
+      // A 404 means no real activity has been indexed for this project yet -- a normal,
+      // honest empty state, not an error.
+      setSnapshotState(err instanceof ApiError && err.status === 404 ? "empty" : "error");
+    }
+  }, [selectedProjectId]);
+
+  useEffect(() => {
+    loadSnapshot();
+  }, [loadSnapshot]);
+
+  const handleRegenerateSnapshot = async () => {
+    if (!selectedProjectId) return;
+    setRegeneratingSnapshot(true);
+    try {
+      const data = await contextApi.regenerateProjectSnapshot(selectedProjectId);
+      setSnapshot(data);
+      setSnapshotState("ready");
+    } catch {
+      // Leave the existing snapshot (if any) displayed rather than clearing it on a failed refresh.
+    } finally {
+      setRegeneratingSnapshot(false);
+    }
+  };
 
   useEffect(() => {
     loadProjectData();
@@ -396,6 +439,92 @@ export default function Dashboard() {
                       </div>
                     </div>
                   )}
+
+                  {/* Project Snapshot (Phase 68) -- a real, templated summary of recent
+                      activity + real knowledge graph bottlenecks, auto-regenerated as real
+                      events are ingested (throttled), or refreshed on demand here. */}
+                  <div className="glass-panel p-6 rounded-2xl space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="text-lg font-bold text-white">Project Snapshot</h3>
+                        <p className="text-xs text-slate-400">
+                          {snapshot ? `As of ${new Date(snapshot.snapshot_timestamp).toLocaleString()}` : "Real, auto-updated project state summary."}
+                        </p>
+                      </div>
+                      <button
+                        onClick={handleRegenerateSnapshot}
+                        disabled={regeneratingSnapshot || !selectedProjectId}
+                        className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-semibold border border-white/10 transition-all disabled:opacity-50"
+                      >
+                        {regeneratingSnapshot ? "Regenerating..." : "Regenerate"}
+                      </button>
+                    </div>
+                    {snapshotState === "loading" ? (
+                      <p className="text-xs text-slate-500">Loading...</p>
+                    ) : snapshotState === "empty" || !snapshot ? (
+                      <p className="text-xs text-slate-500">
+                        No snapshot yet -- one is generated automatically once real GitHub/Jira/Slack activity is
+                        indexed for this project, or click Regenerate to create one now.
+                      </p>
+                    ) : (
+                      <div className="space-y-3">
+                        <pre className="text-xs text-slate-300 whitespace-pre-wrap font-sans leading-relaxed">{snapshot.state_payload.summary}</pre>
+                        {snapshot.state_payload.bottlenecks.length > 0 && (
+                          <div className="flex flex-wrap gap-2 pt-1">
+                            {snapshot.state_payload.bottlenecks.slice(0, 5).map((b) => (
+                              <span key={b.urn} className="px-2 py-1 rounded-full text-[10px] font-semibold bg-rose-500/10 text-rose-300 border border-rose-500/20">
+                                {b.urn}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Live Activity Feed (Phase 66) -- real GitHub/Jira/Slack events pushed
+                      over the existing org-scoped WebSocket as they're ingested, no manual
+                      refresh needed. */}
+                  <div className="glass-panel p-6 rounded-2xl space-y-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                          Live Activity
+                          <span
+                            className={`w-2 h-2 rounded-full ${
+                              activityFeedState === "open" ? "bg-emerald-400" : activityFeedState === "connecting" ? "bg-amber-400 animate-pulse" : "bg-slate-600"
+                            }`}
+                            title={`Live feed: ${activityFeedState}`}
+                          />
+                        </h3>
+                        <p className="text-xs text-slate-400">Real GitHub/Jira/Slack activity as it happens -- no refresh needed.</p>
+                      </div>
+                    </div>
+                    {activityFeed.length === 0 ? (
+                      <p className="text-xs text-slate-500">No real-time activity yet. New PRs, issues, and messages from connected projects will appear here live.</p>
+                    ) : (
+                      <div className="space-y-2 max-h-72 overflow-y-auto">
+                        {activityFeed.map((a, idx) => (
+                          <div key={`${a.timestamp}-${idx}`} className="flex items-center justify-between gap-3 p-3 rounded-xl bg-white/5 border border-white/10 text-xs">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="px-2 py-0.5 rounded-full font-semibold bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 shrink-0">
+                                {a.provider}
+                              </span>
+                              <span className="text-slate-200 truncate">{a.title || a.source_type}</span>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className="text-slate-500">{new Date(a.timestamp).toLocaleTimeString()}</span>
+                              {a.url && (
+                                <a href={a.url} target="_blank" rel="noreferrer" className="text-indigo-400 hover:text-indigo-300">
+                                  View
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
 
                   {/* Specialized Personas Quick Action Grid */}
                   <div className="glass-panel p-6 rounded-2xl space-y-4">

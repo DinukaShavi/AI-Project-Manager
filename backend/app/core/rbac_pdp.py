@@ -22,7 +22,7 @@ class RiskLevel(str, Enum):
     CRITICAL = "CRITICAL"
 
 class ToolCallAuthorizationRequest(BaseModel):
-    user_id: str
+    user_id: Optional[str] = None
     role: UserRole
     tool_name: str
     target_resource_urn: Optional[str] = None
@@ -44,6 +44,30 @@ TOOL_ROLE_MATRIX: Dict[str, Set[UserRole]] = {
     "send_slack_broadcast": {UserRole.SUPER_ADMIN, UserRole.ORG_ADMIN, UserRole.PROJECT_MANAGER, UserRole.DEVELOPER},
     "modify_prompt": {UserRole.SUPER_ADMIN, UserRole.ORG_ADMIN},
 }
+
+# Which roles may GRANT a human-in-the-loop approval for a high-risk tool call (Phase 86).
+# Transcribed directly from enterprise_ai_architecture_spec.md section 5's "Approval Policy"
+# column rather than invented here, so the enforced authority matches the written contract:
+#   delete_repository  -> "Requires Super Admin validation"
+#   deploy_release     -> "PM validation required"
+#   merge_pull_request -> "PM approval required if CI fails"
+# Note this is deliberately NOT the same as TOOL_ROLE_MATRIX (who may *request* the call):
+# a Developer may request a merge_pull_request, but may not sign off on their own.
+TOOL_APPROVER_ROLES: Dict[str, Set[UserRole]] = {
+    "delete_repository": {UserRole.SUPER_ADMIN},
+    "deploy_release": {UserRole.SUPER_ADMIN, UserRole.ORG_ADMIN, UserRole.PROJECT_MANAGER},
+    "merge_pull_request": {UserRole.SUPER_ADMIN, UserRole.ORG_ADMIN, UserRole.PROJECT_MANAGER},
+}
+
+# High-risk tools with no row in the spec's table (e.g. jira_delete_issue,
+# slack_broadcast_all) fall back to organization-administrator sign-off.
+DEFAULT_APPROVER_ROLES: Set[UserRole] = {UserRole.SUPER_ADMIN, UserRole.ORG_ADMIN}
+
+
+def approver_roles_for_tool(tool_name: str) -> Set[UserRole]:
+    """Roles permitted to approve a pending call to `tool_name`."""
+    return TOOL_APPROVER_ROLES.get(tool_name.lower(), DEFAULT_APPROVER_ROLES)
+
 
 # Approval Policies Mapping
 TOOL_APPROVAL_POLICIES: Dict[str, Dict[str, Any]] = {

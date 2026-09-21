@@ -56,10 +56,19 @@ async def test_tool_executor_approval_gates():
     res1 = await executor.execute_tool("jira_get_issue", {"issue_key": "TPM-101"})
     assert res1["status"] in ("SUCCESS", "EXECUTION_ERROR")
 
-    # High-risk side-effect tool without approval token
+    # High-risk side-effect tool with no authenticated request context at all (no db, no
+    # organization_id). Phase 86 made this fail closed: an approval grant is a real, persisted,
+    # tenant-owned row, so without a tenant there is nobody who *could* ever approve it.
+    # Returning WAITING_APPROVAL here (the pre-Phase-86 behavior) would suspend the call on an
+    # approval that can never be granted -- and, before Phase 86, any invented token string
+    # would then have satisfied it anyway. Denying is both honest and safe.
     res2 = await executor.execute_tool("merge_pull_request", {"pr_number": 42})
-    assert res2["status"] == "WAITING_APPROVAL"
-    print("SUCCESS: Tool Executor approval gates verified.")
+    assert res2["status"] == "PERMISSION_DENIED", f"Expected fail-closed denial, got: {res2}"
+    assert "requires a verifiable human approval" in res2["error"]
+
+    # With a real tenant context the same call suspends on a real, approvable record instead.
+    # (The full grant lifecycle is covered by test_tool_approval_workflow.py.)
+    print("SUCCESS: Tool Executor approval gates verified (fail-closed without a tenant context).")
 
 async def test_reflection_engine_confidence():
     print("Test 4: Testing Self-Reflection Engine confidence evaluation...")

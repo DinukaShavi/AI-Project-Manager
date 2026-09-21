@@ -51,6 +51,75 @@ class JiraGetIssueTool(BaseTool):
             return {"status": "error", "issue_key": key, "message": str(e)}
 
 
+class JiraCreateIssueTool(BaseTool):
+    def __init__(self):
+        super().__init__(
+            name="jira_create_issue",
+            description="Create a new Jira issue ticket.",
+            parameters_schema={
+                "type": "object",
+                "properties": {
+                    "project_key": {"type": "string", "description": "Jira project key e.g. TPM"},
+                    "summary": {"type": "string", "description": "Issue summary/title"},
+                    "description": {"type": "string", "description": "Issue description"},
+                    "issue_type": {"type": "string", "description": "Issue type e.g. Task, Bug, Story", "default": "Task"},
+                },
+                "required": ["project_key", "summary"],
+            },
+        )
+
+    async def execute(self, params: Dict[str, Any], session: Optional[AsyncSession] = None) -> Dict[str, Any]:
+        self.validate_parameters(params)
+        project_key = params["project_key"]
+        summary = params["summary"]
+
+        try:
+            connector = _get_jira_connector()
+            issue = await connector.create_issue(
+                project_key=project_key, summary=summary,
+                description=params.get("description", ""), issue_type=params.get("issue_type", "Task"),
+            )
+            return {
+                "status": "success",
+                "project_key": project_key,
+                "issue_key": issue.get("key"),
+                "issue_id": issue.get("id"),
+            }
+        except Exception as e:
+            return {"status": "error", "project_key": project_key, "summary": summary, "message": str(e)}
+
+
+class JiraAddCommentTool(BaseTool):
+    def __init__(self):
+        super().__init__(
+            name="jira_add_comment",
+            description="Add a comment to a Jira issue.",
+            parameters_schema={
+                "type": "object",
+                "properties": {
+                    "issue_key": {"type": "string", "description": "Jira ticket key e.g. TPM-42"},
+                    "body": {"type": "string", "description": "Comment text"},
+                },
+                "required": ["issue_key", "body"],
+            },
+        )
+
+    async def execute(self, params: Dict[str, Any], session: Optional[AsyncSession] = None) -> Dict[str, Any]:
+        self.validate_parameters(params)
+        key = params["issue_key"]
+
+        try:
+            connector = _get_jira_connector()
+            comment = await connector.add_comment(issue_key=key, body=params["body"])
+            return {
+                "status": "success",
+                "issue_key": key,
+                "comment_id": comment.get("id"),
+            }
+        except Exception as e:
+            return {"status": "error", "issue_key": key, "message": str(e)}
+
+
 class JiraUpdateIssueStatusTool(BaseTool):
     def __init__(self):
         super().__init__(

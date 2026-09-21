@@ -1,6 +1,8 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from typing import Dict, Any, Optional
+from app.api.deps import get_current_user
+from app.models.tenant import User
 from app.core.security_guard import get_security_guard_engine
 
 router = APIRouter(prefix="/security", tags=["Enterprise Security Controls"])
@@ -12,14 +14,14 @@ class MaskPIIRequest(BaseModel):
     text: str
 
 @router.post("/scan-prompt")
-async def scan_prompt_injection(payload: SanitizeInputRequest):
+async def scan_prompt_injection(payload: SanitizeInputRequest, current_user: User = Depends(get_current_user)):
     """Scan prompt text for adversarial prompt injection / jailbreak patterns."""
     engine = get_security_guard_engine()
     res = engine.injection_guard.scan_prompt_injection(payload.input_text)
     return res
 
 @router.post("/mask-pii")
-async def mask_pii(payload: MaskPIIRequest):
+async def mask_pii(payload: MaskPIIRequest, current_user: User = Depends(get_current_user)):
     """Redact sensitive PII data entities (Email, SSN, Credit Card, Phone, API Keys)."""
     engine = get_security_guard_engine()
     sanitized_text, masked_counts = engine.pii_masker.mask_pii_entities(payload.text)
@@ -29,7 +31,7 @@ async def mask_pii(payload: MaskPIIRequest):
     }
 
 @router.post("/sanitize")
-async def sanitize_input(payload: SanitizeInputRequest):
+async def sanitize_input(payload: SanitizeInputRequest, current_user: User = Depends(get_current_user)):
     """Run full prompt injection defense and PII data masking pipeline in sequence."""
     engine = get_security_guard_engine()
     res = engine.process_input_sanitization(payload.input_text)

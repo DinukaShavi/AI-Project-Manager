@@ -1,4 +1,5 @@
 import asyncio
+import json
 import uuid
 from typing import Any, Callable, Coroutine, Dict, List
 import redis.asyncio as aioredis
@@ -19,8 +20,10 @@ class RedisEventBus(EventBus):
             await self.client.aclose()
 
     async def publish(self, stream_name: str, event_data: dict) -> str:
-        # Convert nested complex dictionaries/lists into flat string format for Redis compatibility
-        flat_data = {k: str(v) if isinstance(v, (dict, list)) else v for k, v in event_data.items()}
+        # Redis Streams fields must be flat strings; JSON-encode nested dicts/lists (not
+        # Python str(), which produces an un-parseable repr) so subscribers can json.loads them
+        # back into real structures.
+        flat_data = {k: json.dumps(v) if isinstance(v, (dict, list)) else v for k, v in event_data.items()}
         msg_id = await self.client.xadd(stream_name, flat_data)
         return msg_id
 

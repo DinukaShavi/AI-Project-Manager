@@ -81,11 +81,13 @@ async def test_calendar_poller_flow():
         integration_ids = [integration_a.id, integration_b.id, integration_c.id, integration_d.id]
         print(f"Test orgs created. A={org_a.id} B={org_b.id} C={org_c.id}(inactive) D={org_d.id}(expired token)")
 
-        # 1. Poll interval matches the documented requirement (implementation_roadmap.md
-        # Milestone 10: "Poller running every 15 minutes").
-        print("\nTest 1: Verifying the poll interval matches the documented 15-minute cadence...")
-        assert settings.CALENDAR_POLL_INTERVAL_SECONDS == 900, f"Expected 900s (15 min), got {settings.CALENDAR_POLL_INTERVAL_SECONDS}"
-        print("SUCCESS: CALENDAR_POLL_INTERVAL_SECONDS == 900 (15 minutes).")
+        # 1. Poll interval is a real, positive cadence -- shortened from the original 15-minute
+        # Milestone 10 value to 120s in Phase 79 (depth phase, part 3) to reduce real Calendar
+        # staleness; this test asserts the poller's own correctness (a real, sane interval),
+        # not a specific historical value that Phase 79 deliberately changed.
+        print("\nTest 1: Verifying the poll interval is a real, positive, reasonably tight cadence...")
+        assert 0 < settings.CALENDAR_POLL_INTERVAL_SECONDS <= 900, f"Expected a real cadence no slower than the original 15-minute value, got {settings.CALENDAR_POLL_INTERVAL_SECONDS}"
+        print(f"SUCCESS: CALENDAR_POLL_INTERVAL_SECONDS == {settings.CALENDAR_POLL_INTERVAL_SECONDS}s.")
 
         # 2. Discovery finds only active google_calendar integrations -- Org C (inactive) must
         # be excluded, Org A/B/D (active) must be included.

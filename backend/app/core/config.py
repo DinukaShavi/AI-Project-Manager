@@ -51,14 +51,21 @@ class Settings(BaseSettings):
     JIRA_BASE_URL: Optional[str] = None
     JIRA_EMAIL: Optional[str] = None
     JIRA_API_TOKEN: Optional[str] = None
+    JIRA_WEBHOOK_SECRET: Optional[str] = None
     JIRA_CLIENT_ID: Optional[str] = None
     JIRA_CLIENT_SECRET: Optional[str] = None
     # Backup delta-sync poll interval, per system_architecture_design.md's Sync frequency
     # matrix ("Jira = webhook + 4-hour backup cron").
     JIRA_BACKUP_SYNC_INTERVAL_SECONDS: int = 14400
-    # Calendar background poll interval, per implementation_roadmap.md Milestone 10's
-    # documented "Background Jobs: Poller running every 15 minutes fetching updated meetings".
-    CALENDAR_POLL_INTERVAL_SECONDS: int = 900
+    # Calendar background poll interval. Originally 900s (15 min) per
+    # implementation_roadmap.md Milestone 10's documented "Poller running every 15 minutes
+    # fetching updated meetings"; shortened in Phase 79 (depth phase, part 3) to reduce real
+    # staleness -- real Google Calendar push notifications would need a materially larger
+    # phase (Watch channel registration + a channel->org/project mapping + renewal), so a
+    # faster poll was chosen instead as delivering most of the practical benefit for a
+    # one-line change. The poller's distributed lock is acquired and released per cycle
+    # (app/workers/event_worker.py), so this is safe at any interval.
+    CALENDAR_POLL_INTERVAL_SECONDS: int = 120
     GOOGLE_CLIENT_ID: Optional[str] = None
     GOOGLE_CLIENT_SECRET: Optional[str] = None
 
