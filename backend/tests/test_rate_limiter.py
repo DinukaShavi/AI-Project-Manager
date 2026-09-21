@@ -3,12 +3,16 @@ import time
 import uuid
 from unittest.mock import AsyncMock, patch
 from httpx import AsyncClient, ASGITransport
+from sqlalchemy import select
 from app.main import app
+from app.models.tenant import Organization, User
+from app.db.session import SessionLocal
 from app.core.rate_limiter import (
     get_rate_limiter,
     TokenBucketRateLimiter,
     RateLimitDimension,
 )
+from tests._auth_helpers import create_authenticated_headers
 
 async def test_rate_limiter_flow():
     print("Initializing Multi-Dimensional Rate Limiting Engine & Token Bucket validation tests...")
@@ -84,30 +88,57 @@ async def test_rate_limiter_flow():
     assert meta_fallback["backend"] == "in_memory"
     print("SUCCESS: A failing Redis call correctly degraded to the in-memory bucket instead of raising.")
 
-    # 4. Test REST API Endpoints & HTTP 429 Status Code
+    # 4. Test REST API Endpoints & HTTP 429 Status Code, and that both require real
+    # authentication (Phase 84).
     print("\nTest 4: Testing Rate Limiter HTTP REST API endpoints & 429 responses...")
+    org_id = None
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # GET /api/v1/rate-limit/status/user/{test_user_id}
-        res_stat = await client.get(f"/api/v1/rate-limit/status/user/{test_user_id}")
-        assert res_stat.status_code == 200
-        assert res_stat.json()["limit"] == 60
+        try:
+            # Unauthenticated request must be rejected.
+            res_anon = await client.get(f"/api/v1/rate-limit/status/user/{test_user_id}")
+            assert res_anon.status_code in (401, 403), f"Expected 401/403 for unauthenticated request, got {res_anon.status_code}"
+            print("SUCCESS: Unauthenticated request correctly rejected.")
 
-        # POST /api/v1/rate-limit/check (exhaust api_key dimension)
-        api_key_id = str(uuid.uuid4())
-        # Exhaust 200 tokens
-        await client.post(
-            "/api/v1/rate-limit/check",
-            json={"dimension": "api_key", "identifier": api_key_id, "tokens_needed": 200.0}
-        )
-        # Next call triggers 429
-        res_blocked = await client.post(
-            "/api/v1/rate-limit/check",
-            json={"dimension": "api_key", "identifier": api_key_id, "tokens_needed": 1.0}
-        )
-        assert res_blocked.status_code == 429
-        assert "Retry-After" in res_blocked.headers
-        print("SUCCESS: Rate Limiter REST API returned HTTP 429 with Retry-After header.")
+            async with SessionLocal() as session:
+                org = Organization(name=f"Rate Limiter Org {uuid.uuid4().hex[:6]}", domain=f"ratelim-{uuid.uuid4().hex[:6]}.com")
+                session.add(org)
+                await session.commit()
+                org_id = org.id
+            headers = await create_authenticated_headers(client, org_id)
+
+            # GET /api/v1/rate-limit/status/user/{test_user_id}
+            res_stat = await client.get(f"/api/v1/rate-limit/status/user/{test_user_id}", headers=headers)
+            assert res_stat.status_code == 200
+            assert res_stat.json()["limit"] == 60
+
+            # POST /api/v1/rate-limit/check (exhaust api_key dimension)
+            api_key_id = str(uuid.uuid4())
+            # Exhaust 200 tokens
+            await client.post(
+                "/api/v1/rate-limit/check",
+                json={"dimension": "api_key", "identifier": api_key_id, "tokens_needed": 200.0},
+                headers=headers,
+            )
+            # Next call triggers 429
+            res_blocked = await client.post(
+                "/api/v1/rate-limit/check",
+                json={"dimension": "api_key", "identifier": api_key_id, "tokens_needed": 1.0},
+                headers=headers,
+            )
+            assert res_blocked.status_code == 429
+            assert "Retry-After" in res_blocked.headers
+            print("SUCCESS: Rate Limiter REST API returned HTTP 429 with Retry-After header.")
+        finally:
+            if org_id:
+                async with SessionLocal() as session:
+                    user_res = await session.execute(select(User).where(User.organization_id == org_id))
+                    for u in user_res.scalars().all():
+                        await session.delete(u)
+                    org_row = await session.get(Organization, org_id)
+                    if org_row:
+                        await session.delete(org_row)
+                    await session.commit()
 
     print("\nAll Multi-Dimensional Rate Limiting Engine tests completed successfully!")
 

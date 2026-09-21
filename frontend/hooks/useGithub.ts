@@ -3,60 +3,37 @@
 import { useState, useEffect, useCallback } from "react";
 import { githubApi } from "../api/github.api";
 import {
-  GitHubRepository,
   GitHubPullRequest,
   GitHubCommit,
   GitHubIssue,
 } from "../types/github";
 
 /**
- * Custom Hook: Fetch & manage GitHub Repositories state
+ * Custom Hook: Fetch & manage GitHub Pull Requests state, scoped to a project's linked
+ * repositories. Skips fetching (and clears state) while no project is selected.
  */
-export function useGithubRepositories(orgId: string) {
-  const [data, setData] = useState<GitHubRepository[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchRepositories = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await githubApi.getRepositories(orgId);
-      setData(res.repositories || []);
-    } catch (err: any) {
-      setError(err.message || "Failed to load GitHub repositories");
-    } finally {
-      setLoading(false);
-    }
-  }, [orgId]);
-
-  useEffect(() => {
-    fetchRepositories();
-  }, [fetchRepositories]);
-
-  return { repositories: data, loading, error, refresh: fetchRepositories };
-}
-
-/**
- * Custom Hook: Fetch & manage GitHub Pull Requests state
- */
-export function useGithubPullRequests(orgId: string, repository?: string) {
+export function useGithubPullRequests(projectId: string | null, repository?: string) {
   const [data, setData] = useState<GitHubPullRequest[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
   const fetchPullRequests = useCallback(async () => {
+    if (!projectId) {
+      setData([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
-      const res = await githubApi.getPullRequests(orgId, repository);
+      const res = await githubApi.getPullRequests(projectId, repository);
       setData(res.pull_requests || []);
     } catch (err: any) {
       setError(err.message || "Failed to load pull requests");
     } finally {
       setLoading(false);
     }
-  }, [orgId, repository]);
+  }, [projectId, repository]);
 
   useEffect(() => {
     fetchPullRequests();
@@ -66,25 +43,31 @@ export function useGithubPullRequests(orgId: string, repository?: string) {
 }
 
 /**
- * Custom Hook: Fetch & manage GitHub Commit Activity state
+ * Custom Hook: Fetch & manage GitHub Commit Activity state, scoped to a project's linked
+ * repositories. Skips fetching (and clears state) while no project is selected.
  */
-export function useGithubCommits(orgId: string, repository?: string) {
+export function useGithubCommits(projectId: string | null, repository?: string) {
   const [data, setData] = useState<GitHubCommit[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
   const fetchCommits = useCallback(async () => {
+    if (!projectId) {
+      setData([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
-      const res = await githubApi.getCommits(orgId, repository);
+      const res = await githubApi.getCommits(projectId, repository);
       setData(res.commits || []);
     } catch (err: any) {
       setError(err.message || "Failed to load commit activity");
     } finally {
       setLoading(false);
     }
-  }, [orgId, repository]);
+  }, [projectId, repository]);
 
   useEffect(() => {
     fetchCommits();
@@ -94,25 +77,31 @@ export function useGithubCommits(orgId: string, repository?: string) {
 }
 
 /**
- * Custom Hook: Fetch & manage GitHub Issue Tracking state
+ * Custom Hook: Fetch & manage GitHub Issue Tracking state, scoped to a project's linked
+ * repositories. Skips fetching (and clears state) while no project is selected.
  */
-export function useGithubIssues(orgId: string, repository?: string) {
+export function useGithubIssues(projectId: string | null, repository?: string) {
   const [data, setData] = useState<GitHubIssue[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
   const fetchIssues = useCallback(async () => {
+    if (!projectId) {
+      setData([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
-      const res = await githubApi.getIssues(orgId, repository);
+      const res = await githubApi.getIssues(projectId, repository);
       setData(res.issues || []);
     } catch (err: any) {
       setError(err.message || "Failed to load GitHub issues");
     } finally {
       setLoading(false);
     }
-  }, [orgId, repository]);
+  }, [projectId, repository]);
 
   useEffect(() => {
     fetchIssues();

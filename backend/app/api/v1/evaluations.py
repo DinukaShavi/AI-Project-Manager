@@ -1,6 +1,8 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from typing import Dict, Any, Optional, List
+from app.api.deps import get_current_user
+from app.models.tenant import User
 from app.agents.evaluation_engine import (
     get_evaluation_engine,
     EvaluationAssertion
@@ -27,7 +29,7 @@ class EvaluateOutputRequest(BaseModel):
     total_calls: int = 0
 
 @router.post("/evaluate-output")
-async def evaluate_agent_output(payload: EvaluateOutputRequest):
+async def evaluate_agent_output(payload: EvaluateOutputRequest, current_user: User = Depends(get_current_user)):
     """Evaluate planning accuracy, TSR, and hallucination rate for an agent execution run."""
     engine = get_evaluation_engine()
     tsr = engine.calculate_tool_success_rate(payload.success_calls, payload.total_calls)
@@ -44,7 +46,7 @@ async def evaluate_agent_output(payload: EvaluateOutputRequest):
     }
 
 @router.post("/benchmark")
-async def run_benchmark_assertions(payload: BenchmarkRunRequest):
+async def run_benchmark_assertions(payload: BenchmarkRunRequest, current_user: User = Depends(get_current_user)):
     """Execute benchmark assertions pipeline over agent run metrics."""
     engine = get_evaluation_engine()
     assertions = [

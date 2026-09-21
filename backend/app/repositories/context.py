@@ -1,7 +1,7 @@
 import math
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import UUID
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.repositories.base import BaseRepository
 from app.models.context import ContextChunk, ContextEmbedding
@@ -9,6 +9,19 @@ from app.models.context import ContextChunk, ContextEmbedding
 class ContextRepository(BaseRepository[ContextChunk]):
     def __init__(self, session: AsyncSession):
         super().__init__(ContextChunk, session)
+
+    async def delete_chunks_for_source(self, organization_id: UUID, source_type: str, source_id: UUID) -> None:
+        """Delete any previously indexed chunks for this exact (org, source_type, source_id)
+        so re-indexing (an edited PR/issue, or an at-least-once redelivered event) replaces
+        stale content instead of accumulating duplicate/outdated chunks. ContextEmbedding rows
+        cascade-delete via the FK's ondelete=CASCADE."""
+        await self.session.execute(
+            delete(ContextChunk).where(
+                ContextChunk.organization_id == organization_id,
+                ContextChunk.source_type == source_type,
+                ContextChunk.source_id == source_id,
+            )
+        )
 
     async def create_chunk_with_embedding(
         self,
@@ -37,6 +50,7 @@ class ContextRepository(BaseRepository[ContextChunk]):
         await self.session.flush()
 
         embedding = ContextEmbedding(
+            organization_id=organization_id,
             chunk_id=chunk.id,
             model_name="text-embedding-3-small",
             dimension=len(embedding_vector),

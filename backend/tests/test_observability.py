@@ -1,13 +1,18 @@
 import asyncio
 import time
+import uuid
 from httpx import AsyncClient, ASGITransport
+from sqlalchemy import select
 from app.main import app
+from app.models.tenant import Organization, User
+from app.db.session import SessionLocal
 from app.core.observability import (
     get_observability_manager,
     ObservabilityManager,
     TraceContext,
     Span
 )
+from tests._auth_helpers import create_authenticated_headers
 
 async def test_observability_flow():
     print("Initializing OpenTelemetry Distributed Tracing & Observability validation tests...")
@@ -51,32 +56,57 @@ async def test_observability_flow():
     assert "p95_ms" in metrics["telemetry_metrics"]["api_latency_ms"]
     print("SUCCESS: Jaeger trace export and Prometheus metrics summary verified.")
 
-    # 4. Test REST API Endpoints
+    # 4. Test REST API Endpoints require real authentication (Phase 84).
     print("\nTest 4: Testing Observability HTTP REST API endpoints...")
+    org_id = None
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # POST /api/v1/observability/spans
-        res_inj = await client.post(
-            "/api/v1/observability/spans",
-            json={
-                "name": "workflow_duration_ms",
-                "duration_ms": 125.5,
-                "attributes": {"workflow_id": "wf-101"}
-            }
-        )
-        assert res_inj.status_code == 201
-        assert res_inj.json()["duration_ms"] == 125.5
+        try:
+            # Unauthenticated request must be rejected.
+            res_anon = await client.get("/api/v1/observability/metrics")
+            assert res_anon.status_code in (401, 403), f"Expected 401/403 for unauthenticated request, got {res_anon.status_code}"
+            print("SUCCESS: Unauthenticated request correctly rejected.")
 
-        # GET /api/v1/observability/traces
-        res_tr = await client.get("/api/v1/observability/traces")
-        assert res_tr.status_code == 200
-        assert res_tr.json()["total_traces"] >= 4
+            async with SessionLocal() as session:
+                org = Organization(name=f"Observability Org {uuid.uuid4().hex[:6]}", domain=f"obs-{uuid.uuid4().hex[:6]}.com")
+                session.add(org)
+                await session.commit()
+                org_id = org.id
+            headers = await create_authenticated_headers(client, org_id)
 
-        # GET /api/v1/observability/metrics
-        res_met = await client.get("/api/v1/observability/metrics")
-        assert res_met.status_code == 200
-        assert "workflow_duration_ms" in res_met.json()["telemetry_metrics"]
-        print("SUCCESS: Observability REST API endpoints verified.")
+            # POST /api/v1/observability/spans
+            res_inj = await client.post(
+                "/api/v1/observability/spans",
+                json={
+                    "name": "workflow_duration_ms",
+                    "duration_ms": 125.5,
+                    "attributes": {"workflow_id": "wf-101"}
+                },
+                headers=headers,
+            )
+            assert res_inj.status_code == 201
+            assert res_inj.json()["duration_ms"] == 125.5
+
+            # GET /api/v1/observability/traces
+            res_tr = await client.get("/api/v1/observability/traces", headers=headers)
+            assert res_tr.status_code == 200
+            assert res_tr.json()["total_traces"] >= 4
+
+            # GET /api/v1/observability/metrics
+            res_met = await client.get("/api/v1/observability/metrics", headers=headers)
+            assert res_met.status_code == 200
+            assert "workflow_duration_ms" in res_met.json()["telemetry_metrics"]
+            print("SUCCESS: Observability REST API endpoints verified.")
+        finally:
+            if org_id:
+                async with SessionLocal() as session:
+                    user_res = await session.execute(select(User).where(User.organization_id == org_id))
+                    for u in user_res.scalars().all():
+                        await session.delete(u)
+                    org_row = await session.get(Organization, org_id)
+                    if org_row:
+                        await session.delete(org_row)
+                    await session.commit()
 
     print("\nAll OpenTelemetry Distributed Tracing & Observability System tests completed successfully!")
 

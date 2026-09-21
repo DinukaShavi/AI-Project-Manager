@@ -7,7 +7,7 @@ from app.models.invitation import Invitation # noqa
 from app.models.external_identity import ExternalIdentity # noqa
 from app.models.event import Event # noqa
 from app.models.workflow import WorkflowDefinition, WorkflowExecution # noqa
-from app.models.agent import PromptVersion, ModelConfiguration, AgentExecution, ToolExecution # noqa
+from app.models.agent import PromptVersion, ModelConfiguration, AgentExecution, ToolExecution, ToolApproval # noqa
 from app.models.recommendation import Recommendation # noqa
 from app.models.memory import AgentMemory # noqa
 from app.models.graph import ContextSnapshot, KnowledgeGraphEdge # noqa

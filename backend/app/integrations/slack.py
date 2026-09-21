@@ -83,9 +83,26 @@ class SlackConnector(BaseConnector):
             raise ValueError(f"Slack API error: {data.get('error', 'unknown_error')}")
         return data.get("channels", [])
 
-    async def post_message(self, channel: str, text: str) -> Dict[str, Any]:
+    async def list_users(self) -> list:
+        """List real workspace members via GET users.list."""
+        data = await self.fetch_data("users.list", params={"limit": 200})
+        if not data.get("ok"):
+            raise ValueError(f"Slack API error: {data.get('error', 'unknown_error')}")
+        return [m for m in data.get("members", []) if not m.get("deleted")]
+
+    async def list_channel_messages(self, channel_id: str, limit: int = 30) -> list:
+        """List real recent messages in a channel via GET conversations.history. Requires the
+        channels:history scope and the bot to be a member of the channel."""
+        data = await self.fetch_data("conversations.history", params={"channel": channel_id, "limit": limit})
+        if not data.get("ok"):
+            raise ValueError(f"Slack API error: {data.get('error', 'unknown_error')}")
+        return data.get("messages", [])
+
+    async def post_message(self, channel: str, text: str, thread_ts: Optional[str] = None) -> Dict[str, Any]:
         """Post a real message via POST chat.postMessage. Slack returns HTTP 200 even for
-        application-level errors, signaled via the 'ok' field."""
+        application-level errors, signaled via the 'ok' field. Optional thread_ts replies
+        inside an existing thread instead of posting a new top-level message -- additive,
+        every existing top-level-post caller is unaffected."""
         if not self.bot_token:
             raise ValueError("Slack bot_token is required to post a message.")
 
@@ -93,11 +110,14 @@ class SlackConnector(BaseConnector):
             "Authorization": f"Bearer {self.bot_token}",
             "Content-Type": "application/json; charset=utf-8"
         }
+        payload: Dict[str, Any] = {"channel": channel, "text": text}
+        if thread_ts:
+            payload["thread_ts"] = thread_ts
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 f"{self.base_url}/chat.postMessage",
                 headers=headers,
-                json={"channel": channel, "text": text}
+                json=payload
             )
             response.raise_for_status()
             data = response.json()

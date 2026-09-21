@@ -58,9 +58,15 @@ class IntegrationService:
         sig_key = sig_header_keys.get(provider.lower(), "x-signature")
         signature = headers.get(sig_key, headers.get("signature", ""))
 
-        # Verify signature if secret is configured, signature is present, and secret is not default placeholder
+        # Fail CLOSED: when a real (non-placeholder) secret is configured server-side, a
+        # signature is mandatory and must verify. Only when no secret is configured at all does
+        # verification skip -- in that case the caller is trusted solely via the unguessable
+        # per-org webhook_token already resolved before this method is ever reached (see
+        # resolve_organization_for_webhook_token), not via anything in this request itself.
         is_placeholder = not secret or "your_" in secret or "here" in secret
-        if signature and secret and not is_placeholder:
+        if not is_placeholder:
+            if not signature:
+                raise ValueError(f"Missing required webhook signature for provider '{provider}'.")
             is_valid = connector.verify_webhook_signature(payload_bytes, signature, secret)
             if not is_valid:
                 raise ValueError(f"Invalid webhook signature for provider '{provider}'.")
@@ -93,8 +99,45 @@ class IntegrationService:
         self.session.add(db_event)
         await self.session.commit()
         await self.session.refresh(db_event)
-        
+
         return db_event
+
+    async def resolve_organization_for_webhook_token(self, provider: str, webhook_token: str) -> Optional[UUID]:
+        """Resolve which organization owns an inbound webhook purely from its unguessable
+        per-(org, provider) token -- the request itself never gets to assert organization_id.
+        Returns None (caller returns 404) for an unknown token, a token belonging to a
+        different provider, or an inactive integration."""
+        from sqlalchemy import select
+        from app.models.integration import Integration
+
+        if not webhook_token:
+            return None
+        res = await self.session.execute(
+            select(Integration).where(
+                Integration.webhook_token == webhook_token,
+                Integration.provider == provider.lower(),
+                Integration.is_active == True,
+            )
+        )
+        integration = res.scalar_one_or_none()
+        return integration.organization_id if integration else None
+
+    async def get_webhook_url(self, organization_id: UUID, provider: str) -> Optional[str]:
+        """Return this organization's real, token-bearing inbound webhook path for a
+        connected provider (e.g. '/webhooks/github/<token>'), or None if not connected yet."""
+        from sqlalchemy import select
+        from app.models.integration import Integration
+
+        res = await self.session.execute(
+            select(Integration).where(
+                Integration.organization_id == organization_id,
+                Integration.provider == provider.lower(),
+            )
+        )
+        integration = res.scalar_one_or_none()
+        if not integration or not integration.webhook_token:
+            return None
+        return f"/api/v1/webhooks/{provider.lower()}/{integration.webhook_token}"
 
     async def generate_oauth_authorize_url(
         self,
@@ -117,7 +160,9 @@ class IntegrationService:
             return f"https://auth.atlassian.com/authorize?audience=api.atlassian.com&client_id={client_id}&scope={scope}&redirect_uri={redirect_uri}&state={state}&response_type=code&prompt=consent"
         elif p == "slack":
             client_id = settings.SLACK_CLIENT_ID or "slack_mock_client_id"
-            scope = "chat:write,channels:read,users:read"
+            # channels:history added in Phase 63 for real message reads (conversations.history)
+            # -- channels:read alone only covers channel metadata, not message content.
+            scope = "chat:write,channels:read,channels:history,users:read"
             return f"https://slack.com/oauth/v2/authorize?client_id={client_id}&scope={scope}&redirect_uri={redirect_uri}&state={state}"
         elif p in ["google", "google_calendar"]:
             client_id = settings.GOOGLE_CLIENT_ID or "google_mock_client_id"
@@ -486,10 +531,12 @@ class IntegrationService:
         )
         integration = int_res.scalar_one_or_none()
         if not integration:
+            import secrets
             integration = Integration(
                 organization_id=organization_id,
                 provider=p,
-                is_active=True
+                is_active=True,
+                webhook_token=secrets.token_urlsafe(32),
             )
             self.session.add(integration)
             await self.session.flush()
@@ -824,6 +871,8 @@ class IntegrationService:
                     "project_key": (fields.get("project") or {}).get("key"),
                     "summary": fields.get("summary"),
                     "status": (fields.get("status") or {}).get("name"),
+                    "status_category": ((fields.get("status") or {}).get("statusCategory") or {}).get("key"),
+                    "assignee_account_id": (fields.get("assignee") or {}).get("accountId"),
                     "source": "backup_sync",
                 },
                 processed=False,
@@ -880,6 +929,146 @@ class IntegrationService:
         )
         raw_projects = await connector.list_projects()
         return [{"key": p["key"], "name": p["name"]} for p in raw_projects if p.get("key") and p.get("name")]
+
+    async def _get_oauth_jira_connector_for_project(self, organization_id: UUID, project_id: UUID) -> Tuple[JiraConnector, str]:
+        """Shared setup for the real per-organization-OAuth Jira reads below: resolve the
+        org's OAuth token + connected Cloud ID, and the project's real Jira project key.
+        Raises ValueError if Jira isn't connected for the org, LookupError if the project
+        doesn't belong to this org or has no jira_project_key configured."""
+        from app.models.integration import Integration
+
+        token = await self.get_valid_oauth_token(organization_id, "jira")
+        if not token:
+            raise ValueError("Jira is not connected for this organization. Connect it first via /oauth/jira/authorize.")
+
+        int_res = await self.session.execute(
+            select(Integration).where(Integration.organization_id == organization_id, Integration.provider == "jira")
+        )
+        integration = int_res.scalar_one_or_none()
+        if not integration or not integration.external_workspace_id:
+            raise ValueError("Jira connection is missing its site (Cloud ID) -- reconnect Jira via /oauth/jira/authorize.")
+
+        project = await self.session.get(Project, project_id)
+        if not project or project.organization_id != organization_id:
+            raise LookupError("Project not found in this organization.")
+        if not project.jira_project_key:
+            raise LookupError("This project has no Jira project key configured.")
+
+        connector = JiraConnector(access_token=token, cloud_id=integration.external_workspace_id)
+        return connector, project.jira_project_key
+
+    async def get_jira_issues_for_project(self, organization_id: UUID, project_id: UUID) -> List[Dict[str, Any]]:
+        """Real Jira issue backlog for a project, via the org's real per-organization OAuth
+        connection -- the follow-up phase Phase 55's identity-resolution comment flagged."""
+        connector, project_key = await self._get_oauth_jira_connector_for_project(organization_id, project_id)
+        story_points_field_id = await connector.resolve_story_points_field_id()
+
+        raw_issues = await connector.list_project_issues(project_key, story_points_field_id=story_points_field_id)
+        results = []
+        for issue in raw_issues:
+            fields = issue.get("fields", {})
+            story_points = fields.get(story_points_field_id) if story_points_field_id else None
+            results.append({
+                "id": issue["id"],
+                "key": issue["key"],
+                "summary": fields.get("summary", ""),
+                "status": (fields.get("status") or {}).get("name", ""),
+                "priority": (fields.get("priority") or {}).get("name", ""),
+                "assignee": (fields.get("assignee") or {}).get("displayName", ""),
+                "story_points": story_points if isinstance(story_points, (int, float)) else None,
+            })
+        return results
+
+    async def get_jira_sprints_for_project(self, organization_id: UUID, project_id: UUID) -> List[Dict[str, Any]]:
+        """Real Jira sprints for a project's first accessible board, via the org's real
+        per-organization OAuth connection. Story points per sprint are best-effort (None when
+        the Story Points custom field can't be confidently resolved on this site)."""
+        connector, project_key = await self._get_oauth_jira_connector_for_project(organization_id, project_id)
+
+        boards = await connector.list_boards(project_key)
+        if not boards:
+            return []
+        board_id = boards[0]["id"]
+
+        story_points_field_id = await connector.resolve_story_points_field_id()
+        raw_sprints = await connector.list_sprints(board_id)
+
+        results = []
+        for sprint in raw_sprints:
+            points = {"completed_story_points": None, "total_story_points": None}
+            if story_points_field_id:
+                points = await connector.get_sprint_story_points(sprint["id"], story_points_field_id)
+            results.append({
+                "id": sprint["id"],
+                "name": sprint.get("name", ""),
+                "state": sprint.get("state", ""),
+                "start_date": sprint.get("startDate"),
+                "end_date": sprint.get("endDate"),
+                "completed_story_points": points["completed_story_points"],
+                "total_story_points": points["total_story_points"],
+            })
+        return results
+
+    async def get_jira_workload_for_project(self, organization_id: UUID, project_id: UUID) -> List[Dict[str, Any]]:
+        """Real per-assignee workload distribution (Phase 72), aggregated from
+        get_jira_issues_for_project's already-real per-issue assignee/story_points data --
+        no new Jira API calls. `total_story_points` is None (not a fabricated 0) whenever this
+        site's Story Points field itself couldn't be resolved; `percentage_of_team_points` is a
+        real relative share of the project's total resolved points, not an assumed capacity
+        baseline (nothing in this system tracks per-person sprint capacity, so a "capacity"
+        percentage could only ever have been fabricated)."""
+        issues = await self.get_jira_issues_for_project(organization_id, project_id)
+
+        by_assignee: Dict[str, Dict[str, Any]] = {}
+        field_resolved = False
+        for issue in issues:
+            assignee = issue.get("assignee") or "Unassigned"
+            entry = by_assignee.setdefault(assignee, {"assigned_issues": 0, "total_story_points": 0.0})
+            entry["assigned_issues"] += 1
+            points = issue.get("story_points")
+            if isinstance(points, (int, float)):
+                field_resolved = True
+                entry["total_story_points"] += points
+
+        team_total = sum(e["total_story_points"] for e in by_assignee.values())
+        workload = []
+        for assignee, entry in by_assignee.items():
+            total_points = entry["total_story_points"] if field_resolved else None
+            share = round((entry["total_story_points"] / team_total) * 100, 1) if field_resolved and team_total > 0 else None
+            workload.append({
+                "assignee": assignee,
+                "assigned_issues": entry["assigned_issues"],
+                "total_story_points": total_points,
+                "percentage_of_team_points": share,
+            })
+        workload.sort(key=lambda w: w["assigned_issues"], reverse=True)
+        return workload
+
+    async def get_jira_velocity_for_project(self, organization_id: UUID, project_id: UUID) -> Dict[str, Any]:
+        """Real historical sprint velocity (Phase 72), reconstructed from
+        get_jira_sprints_for_project's already-real per-sprint completed/total story points
+        (Phase 62's get_sprint_story_points) -- Jira has no public Velocity Chart REST
+        endpoint, so this is a real equivalent built from real per-sprint issue data rather
+        than a single API call. Only closed sprints with a resolved Story Points value count;
+        `average_velocity` is None (not a fabricated number) when none qualify."""
+        sprints = await self.get_jira_sprints_for_project(organization_id, project_id)
+
+        closed_with_points = [
+            s for s in sprints if s.get("state") == "closed" and s.get("total_story_points") is not None
+        ]
+        closed_with_points.sort(key=lambda s: s.get("end_date") or s.get("start_date") or "")
+        history = closed_with_points[-6:]
+
+        completed_values = [s["completed_story_points"] for s in history if s.get("completed_story_points") is not None]
+        average_velocity = round(sum(completed_values) / len(completed_values), 1) if completed_values else None
+
+        return {
+            "average_velocity": average_velocity,
+            "sprint_velocity_history": [
+                {"sprint": s.get("name", ""), "committed": s["total_story_points"], "completed": s["completed_story_points"]}
+                for s in history
+            ],
+        }
 
     async def link_github_repository(
         self,
@@ -976,6 +1165,105 @@ class IntegrationService:
         )
         return list(res.scalars().all())
 
+    async def _resolve_repos_for_dashboard_query(
+        self, organization_id: UUID, project_id: UUID, repository: Optional[str]
+    ) -> List[str]:
+        """Shared resolution for the real GitHub dashboard reads below: which repo
+        full_names to actually query, scoped to one project's linked repositories (never the
+        whole org's, and never an arbitrary repo the caller merely names). Raises ValueError
+        if the project doesn't belong to this org, or if `repository` was given but isn't
+        actually linked to it."""
+        linked = await self.list_linked_repositories(organization_id, project_id)
+        names = [r.name for r in linked]
+        if repository is None:
+            return names
+        if repository not in names:
+            raise LookupError(f"Repository '{repository}' is not linked to this project.")
+        return [repository]
+
+    async def get_pull_requests_for_org(
+        self, organization_id: UUID, project_id: UUID, repository: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Real pull requests across a project's linked GitHub repositories."""
+        token = await self.get_valid_oauth_token(organization_id, "github")
+        if not token:
+            raise ValueError("GitHub is not connected for this organization. Connect it first via /oauth/github/authorize.")
+        repo_names = await self._resolve_repos_for_dashboard_query(organization_id, project_id, repository)
+
+        connector = GitHubConnector(token=token)
+        results: List[Dict[str, Any]] = []
+        for repo_name in repo_names:
+            for pr in await connector.list_pull_requests(repo_name):
+                results.append({
+                    "id": pr["id"],
+                    "number": pr["number"],
+                    "title": pr["title"],
+                    "state": "merged" if pr.get("merged_at") else pr["state"],
+                    "author": (pr.get("user") or {}).get("login", ""),
+                    "repository": repo_name,
+                    "html_url": pr["html_url"],
+                    "created_at": pr["created_at"],
+                    "draft": pr.get("draft", False),
+                    "additions": pr.get("additions", 0),
+                    "deletions": pr.get("deletions", 0),
+                    "labels": [l["name"] for l in pr.get("labels", [])],
+                })
+        return results
+
+    async def get_commits_for_org(
+        self, organization_id: UUID, project_id: UUID, repository: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Real commit history across a project's linked GitHub repositories."""
+        token = await self.get_valid_oauth_token(organization_id, "github")
+        if not token:
+            raise ValueError("GitHub is not connected for this organization. Connect it first via /oauth/github/authorize.")
+        repo_names = await self._resolve_repos_for_dashboard_query(organization_id, project_id, repository)
+
+        connector = GitHubConnector(token=token)
+        results: List[Dict[str, Any]] = []
+        for repo_name in repo_names:
+            for c in await connector.list_commits(repo_name):
+                commit_info = c.get("commit", {})
+                author_info = commit_info.get("author", {})
+                results.append({
+                    "sha": c["sha"],
+                    "short_sha": c["sha"][:7],
+                    "message": commit_info.get("message", ""),
+                    "author": author_info.get("name", ""),
+                    "author_email": author_info.get("email", ""),
+                    "repository": repo_name,
+                    "timestamp": author_info.get("date", ""),
+                    "html_url": c["html_url"],
+                })
+        return results
+
+    async def get_issues_for_org(
+        self, organization_id: UUID, project_id: UUID, repository: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Real issues across a project's linked GitHub repositories."""
+        token = await self.get_valid_oauth_token(organization_id, "github")
+        if not token:
+            raise ValueError("GitHub is not connected for this organization. Connect it first via /oauth/github/authorize.")
+        repo_names = await self._resolve_repos_for_dashboard_query(organization_id, project_id, repository)
+
+        connector = GitHubConnector(token=token)
+        results: List[Dict[str, Any]] = []
+        for repo_name in repo_names:
+            for issue in await connector.list_issues(repo_name):
+                results.append({
+                    "id": issue["id"],
+                    "number": issue["number"],
+                    "title": issue["title"],
+                    "state": issue["state"],
+                    "author": (issue.get("user") or {}).get("login", ""),
+                    "repository": repo_name,
+                    "html_url": issue["html_url"],
+                    "created_at": issue["created_at"],
+                    "comments_count": issue.get("comments", 0),
+                    "labels": [l["name"] if isinstance(l, dict) else l for l in issue.get("labels", [])],
+                })
+        return results
+
     async def sync_calendar_events(
         self,
         organization_id: UUID,
@@ -998,6 +1286,7 @@ class IntegrationService:
         """
         from datetime import datetime as dt
         from app.models.project import Meeting
+        from app.integrations.calendar import extract_meet_link
 
         project = await self.session.get(Project, project_id)
         if not project or project.organization_id != organization_id:
@@ -1011,6 +1300,7 @@ class IntegrationService:
         events = await connector.list_events(time_min=start_date, time_max=end_date)
 
         synced = 0
+        ingestion_payloads: List[Dict[str, Any]] = []
         for ev in events:
             external_id = ev.get("id")
             if not external_id:
@@ -1023,6 +1313,7 @@ class IntegrationService:
             end_time = dt.fromisoformat(end_raw.replace("Z", "+00:00"))
             attendees = [a.get("email") for a in (ev.get("attendees") or []) if a.get("email")]
             title = ev.get("summary") or "Untitled Event"
+            meet_link = extract_meet_link(ev)
 
             existing = await self.session.execute(
                 select(Meeting).where(Meeting.project_id == project_id, Meeting.external_event_id == external_id)
@@ -1033,6 +1324,7 @@ class IntegrationService:
                 meeting.start_time = start_time
                 meeting.end_time = end_time
                 meeting.attendees = attendees
+                meeting.meet_link = meet_link
             else:
                 meeting = Meeting(
                     organization_id=organization_id,
@@ -1042,11 +1334,46 @@ class IntegrationService:
                     start_time=start_time,
                     end_time=end_time,
                     attendees=attendees,
+                    meet_link=meet_link,
                 )
                 self.session.add(meeting)
             synced += 1
+            ingestion_payloads.append({
+                "external_event_id": external_id,
+                "title": title,
+                "description": ev.get("description") or "",
+                "attendees": attendees,
+                "start_time": start_raw,
+                "html_link": ev.get("htmlLink"),
+            })
 
         await self.session.commit()
+
+        # Feed each real synced meeting into the same centralized context pipeline every real
+        # GitHub/Jira/Slack event already goes through (Phase 58/59/66/68) -- Calendar was the
+        # one integration that stayed outside it, since it's poll-driven rather than webhook-
+        # driven and so never had an Event row to publish through the Redis stream in the
+        # first place. Called directly here rather than inventing a fake webhook/Outbox detour
+        # for a source that doesn't need one; best-effort so an ingestion failure never breaks
+        # a successful sync.
+        if ingestion_payloads:
+            from loguru import logger
+            from app.services.context_ingestion import ContextIngestionService
+
+            ingestion_service = ContextIngestionService()
+            for calendar_payload in ingestion_payloads:
+                try:
+                    await ingestion_service.handle_event(
+                        f"calendar:{calendar_payload['external_event_id']}",
+                        {
+                            "organization_id": str(organization_id),
+                            "project_id": str(project_id),
+                            "payload": {"provider": "calendar", **calendar_payload},
+                        },
+                    )
+                except Exception as e:
+                    logger.warning(f"Calendar context ingestion failed for event {calendar_payload['external_event_id']}: {e}")
+
         return {"events_synced": synced, "events_found": len(events)}
 
     async def create_calendar_event(
@@ -1057,6 +1384,7 @@ class IntegrationService:
         start_time: "datetime",
         end_time: "datetime",
         attendee_emails: Optional[List[str]] = None,
+        attendee_user_ids: Optional[List[UUID]] = None,
         description: str = "",
         user_id: Optional[UUID] = None,
     ) -> Meeting:
@@ -1067,14 +1395,38 @@ class IntegrationService:
         needed. Persists the resulting Meeting row immediately (rather than waiting for the
         next poll) so it shows up in GET /calendar/meetings right away.
 
-        Raises LookupError if the project doesn't exist / belongs to another org, ValueError
-        if the organization has no active Google Calendar connection, or PermissionError if
-        the token has expired and couldn't be refreshed -- all via get_valid_oauth_token,
-        matching sync_calendar_events's convention exactly.
+        attendee_user_ids (Phase 64) are real AI-TPM users picked from
+        GET /organizations/members/directory, resolved here to their real emails and merged
+        with attendee_emails (still useful for inviting someone outside the org) -- a PM no
+        longer has to type every teammate's exact email by hand.
+
+        Raises LookupError if the project doesn't exist / belongs to another org, or if any
+        attendee_user_id doesn't belong to this org either; ValueError if the organization has
+        no active Google Calendar connection; PermissionError if the token had expired and
+        couldn't be refreshed -- all via get_valid_oauth_token, matching
+        sync_calendar_events's convention exactly.
         """
         project = await self.session.get(Project, project_id)
         if not project or project.organization_id != organization_id:
             raise LookupError("Project not found in this organization.")
+
+        resolved_emails = list(attendee_emails or [])
+        if attendee_user_ids:
+            from app.models.tenant import User
+
+            res = await self.session.execute(
+                select(User).where(User.id.in_(attendee_user_ids), User.organization_id == organization_id)
+            )
+            found_users = {u.id: u for u in res.scalars().all()}
+            missing = [str(uid) for uid in attendee_user_ids if uid not in found_users]
+            if missing:
+                raise LookupError(f"Attendee user id(s) not found in this organization: {', '.join(missing)}")
+            resolved_emails.extend(u.email for u in found_users.values())
+
+        # Deduplicate while preserving order (a picked teammate might also appear in
+        # attendee_emails if the caller supplied both).
+        seen = set()
+        attendee_emails = [e for e in resolved_emails if not (e in seen or seen.add(e))]
 
         access_token = await self.get_valid_oauth_token(organization_id, "google_calendar")
         if not access_token:
@@ -1093,6 +1445,8 @@ class IntegrationService:
         if not external_id:
             raise ValueError("Google Calendar did not return an event id for the created event.")
 
+        from app.integrations.calendar import extract_meet_link
+
         meeting = Meeting(
             organization_id=organization_id,
             project_id=project_id,
@@ -1101,6 +1455,7 @@ class IntegrationService:
             start_time=start_time,
             end_time=end_time,
             attendees=attendee_emails or [],
+            meet_link=extract_meet_link(event),
         )
         self.session.add(meeting)
 
@@ -1113,6 +1468,32 @@ class IntegrationService:
 
         await self.session.commit()
         await self.session.refresh(meeting)
+
+        # Same real centralized-context pipeline sync_calendar_events feeds (Phase 73) --
+        # best-effort so an ingestion failure never breaks a successful real event creation.
+        try:
+            from loguru import logger
+            from app.services.context_ingestion import ContextIngestionService
+
+            await ContextIngestionService().handle_event(
+                f"calendar:{external_id}",
+                {
+                    "organization_id": str(organization_id),
+                    "project_id": str(project_id),
+                    "payload": {
+                        "provider": "calendar",
+                        "external_event_id": external_id,
+                        "title": title,
+                        "description": description,
+                        "attendees": attendee_emails or [],
+                        "start_time": start_time.isoformat(),
+                        "html_link": event.get("htmlLink"),
+                    },
+                },
+            )
+        except Exception as e:
+            logger.warning(f"Calendar context ingestion failed for created event {external_id}: {e}")
+
         return meeting
 
     async def list_meetings(
@@ -1138,6 +1519,71 @@ class IntegrationService:
             .order_by(Meeting.start_time.asc())
         )
         return list(res.scalars().all())
+
+    async def get_team_availability(
+        self, organization_id: UUID, start_date: "datetime", end_date: "datetime"
+    ) -> List[Dict[str, Any]]:
+        """Real team availability across the org's real members (Phase 65), via Google
+        Calendar's real freeBusy.query API -- replaces the mock GET /google/availability.
+
+        Computes fixed 1-hour candidate slots across 09:00-17:00 UTC for each day in
+        [start_date, end_date), and for each slot lists which real members have no busy
+        interval overlapping it. A documented, fixed simplification (not a full timezone-aware
+        scheduling engine), but a real computation over real freebusy data, not fabricated.
+
+        Raises ValueError if Calendar isn't connected for the org.
+        """
+        from datetime import datetime as dt, timedelta, timezone as tz
+        from app.services.organization import OrganizationService
+
+        access_token = await self.get_valid_oauth_token(organization_id, "google_calendar")
+        if not access_token:
+            raise ValueError("No active Google Calendar connection for this organization. Authorize via /oauth/google_calendar/authorize first.")
+
+        members = await OrganizationService(self.session).list_members(organization_id)
+        member_emails = {m.email: m.full_name for m in members}
+        if not member_emails:
+            return []
+
+        connector = GoogleCalendarConnector(access_token=access_token)
+        busy_by_email = await connector.query_freebusy(list(member_emails.keys()), start_date, end_date)
+
+        def _overlaps(slot_start: "datetime", slot_end: "datetime", busy_start: "datetime", busy_end: "datetime") -> bool:
+            return slot_start < busy_end and busy_start < slot_end
+
+        slots: List[Dict[str, Any]] = []
+        current_day = start_date.astimezone(tz.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        end_boundary = end_date.astimezone(tz.utc)
+        while current_day < end_boundary:
+            for hour in range(9, 17):
+                slot_start = current_day.replace(hour=hour)
+                slot_end = slot_start + timedelta(hours=1)
+                if slot_start < start_date.astimezone(tz.utc) or slot_end > end_boundary:
+                    continue
+
+                available = []
+                for email, full_name in member_emails.items():
+                    busy_intervals = busy_by_email.get(email, [])
+                    is_busy = any(
+                        _overlaps(
+                            slot_start, slot_end,
+                            dt.fromisoformat(b["start"].replace("Z", "+00:00")),
+                            dt.fromisoformat(b["end"].replace("Z", "+00:00")),
+                        )
+                        for b in busy_intervals
+                    )
+                    if not is_busy:
+                        available.append(full_name or email)
+
+                if available:
+                    slots.append({
+                        "date": slot_start.strftime("%Y-%m-%d"),
+                        "slot": f"{slot_start.strftime('%I:%M %p').lstrip('0')} - {slot_end.strftime('%I:%M %p').lstrip('0')} UTC",
+                        "participants_available": available,
+                    })
+            current_day += timedelta(days=1)
+
+        return slots
 
     async def map_slack_channel_to_project(
         self,
@@ -1223,6 +1669,111 @@ class IntegrationService:
             select(SlackChannelMapping).where(SlackChannelMapping.project_id == project_id, SlackChannelMapping.organization_id == organization_id)
         )
         return list(res.scalars().all())
+
+    async def get_slack_users_for_org(self, organization_id: UUID) -> List[Dict[str, Any]]:
+        """Real Slack workspace members for the org's connected bot token. Org-wide, not
+        project-scoped -- Slack workspace membership isn't a per-project concept, unlike
+        channels/issues/repos."""
+        from app.integrations.slack import SlackConnector
+
+        token = await self.get_valid_oauth_token(organization_id, "slack")
+        if not token:
+            raise ValueError("Slack is not connected for this organization. Connect it first via /oauth/slack/authorize.")
+
+        connector = SlackConnector(bot_token=token)
+        raw_users = await connector.list_users()
+        return [
+            {
+                "id": u["id"],
+                "name": u.get("name", ""),
+                "real_name": (u.get("profile") or {}).get("real_name") or u.get("real_name", ""),
+                "role": "Admin" if u.get("is_admin") else ("Owner" if u.get("is_owner") else "Member"),
+                "is_bot": u.get("is_bot", False),
+                "status_text": (u.get("profile") or {}).get("status_text", ""),
+            }
+            for u in raw_users
+        ]
+
+    async def get_slack_messages_for_channel(self, organization_id: UUID, channel_id: str) -> List[Dict[str, Any]]:
+        """Real recent messages for a channel already mapped to one of this org's projects --
+        never an arbitrary channel id the bot happens to have joined, mirroring the GitHub
+        "repository must be linked" ownership check. Raises LookupError if the channel isn't
+        mapped to anything this org owns."""
+        from app.integrations.slack import SlackConnector
+
+        token = await self.get_valid_oauth_token(organization_id, "slack")
+        if not token:
+            raise ValueError("Slack is not connected for this organization. Connect it first via /oauth/slack/authorize.")
+
+        mapping_res = await self.session.execute(
+            select(SlackChannelMapping).where(
+                SlackChannelMapping.organization_id == organization_id,
+                SlackChannelMapping.slack_channel_id == channel_id,
+            )
+        )
+        if not mapping_res.scalar_one_or_none():
+            raise LookupError(f"Channel '{channel_id}' is not mapped to any project in this organization.")
+
+        connector = SlackConnector(bot_token=token)
+        raw_messages = await connector.list_channel_messages(channel_id)
+
+        # Resolve real display names for message authors -- messages only carry a raw user
+        # id, so this is one extra real call rather than showing an unresolved id as the name.
+        user_names: Dict[str, str] = {}
+        try:
+            for u in await connector.list_users():
+                user_names[u["id"]] = (u.get("profile") or {}).get("real_name") or u.get("real_name") or u.get("name", u["id"])
+        except Exception:
+            pass
+
+        from datetime import datetime, timezone
+
+        results = []
+        for m in raw_messages:
+            ts = m.get("ts", "")
+            try:
+                timestamp = datetime.fromtimestamp(float(ts), tz=timezone.utc).isoformat()
+            except (ValueError, TypeError):
+                timestamp = ""
+            results.append({
+                "ts": ts,
+                "user": m.get("user", ""),
+                "user_name": user_names.get(m.get("user", ""), m.get("user", "")),
+                "text": m.get("text", ""),
+                "timestamp": timestamp,
+            })
+        return results
+
+    async def resolve_project_for_github_repo(self, organization_id: UUID, repo_full_name: str) -> Optional[UUID]:
+        """Look up the project a GitHub repository is linked to (via link_github_repository's
+        `repositories` table), for auto-routing incoming issue/PR webhook events to the
+        correct project's context -- mirrors resolve_project_for_slack_channel."""
+        if not repo_full_name:
+            return None
+        res = await self.session.execute(
+            select(Repository).where(
+                Repository.organization_id == organization_id,
+                Repository.name == repo_full_name,
+            )
+        )
+        repo = res.scalar_one_or_none()
+        return repo.project_id if repo else None
+
+    async def resolve_project_for_jira_key(self, organization_id: UUID, project_key: str) -> Optional[UUID]:
+        """Look up the project configured with a given Jira project key (Project.jira_project_key,
+        set manually at project-creation time), for auto-routing incoming Jira issue events to
+        the correct project's context -- mirrors resolve_project_for_slack_channel."""
+        if not project_key:
+            return None
+        res = await self.session.execute(
+            select(Project).where(
+                Project.organization_id == organization_id,
+                Project.jira_project_key == project_key,
+                Project.deleted_at == None,
+            )
+        )
+        project = res.scalar_one_or_none()
+        return project.id if project else None
 
     async def resolve_project_for_slack_channel(self, organization_id: UUID, slack_channel_id: str) -> Optional[UUID]:
         """Look up the project a Slack channel is mapped to, for auto-routing incoming webhook

@@ -94,7 +94,7 @@ class IntelligenceGoalRequest(BaseModel):
     user_role: Optional[str] = "Developer"
     approval_token: Optional[str] = None
     historical_velocities: Optional[list[float]] = None
-    remaining_points: Optional[float] = 25.0
+    remaining_points: Optional[float] = None
 
 @router.post("/intelligence", status_code=status.HTTP_200_OK)
 async def process_project_intelligence(
@@ -112,7 +112,7 @@ async def process_project_intelligence(
         user_role=payload.user_role or "Developer",
         approval_token=payload.approval_token,
         historical_velocities=payload.historical_velocities,
-        remaining_points=payload.remaining_points or 25.0
+        remaining_points=payload.remaining_points
     )
     return result
 

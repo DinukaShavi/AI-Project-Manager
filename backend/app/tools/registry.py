@@ -1,8 +1,8 @@
 from typing import Any, Dict, List, Optional
 from app.tools.base import BaseTool
-from app.tools.github_tools import GitHubCreateIssueTool, GitHubGetPRDiffTool
-from app.tools.jira_tools import JiraGetIssueTool, JiraUpdateIssueStatusTool
-from app.tools.slack_tools import SlackPostMessageTool
+from app.tools.github_tools import GitHubCreateIssueTool, GitHubGetPRDiffTool, GitHubCommentOnPRTool, MergePullRequestTool
+from app.tools.jira_tools import JiraGetIssueTool, JiraUpdateIssueStatusTool, JiraCreateIssueTool, JiraAddCommentTool
+from app.tools.slack_tools import SlackPostMessageTool, SlackReplyInThreadTool
 from app.tools.context_tools import ContextSearchTool
 
 class ToolRegistry:
@@ -42,9 +42,14 @@ def get_tool_registry() -> ToolRegistry:
         # Register built-in tools
         registry.register_tool(GitHubCreateIssueTool())
         registry.register_tool(GitHubGetPRDiffTool())
+        registry.register_tool(GitHubCommentOnPRTool())
+        registry.register_tool(MergePullRequestTool())
         registry.register_tool(JiraGetIssueTool())
         registry.register_tool(JiraUpdateIssueStatusTool())
+        registry.register_tool(JiraCreateIssueTool())
+        registry.register_tool(JiraAddCommentTool())
         registry.register_tool(SlackPostMessageTool())
+        registry.register_tool(SlackReplyInThreadTool())
         registry.register_tool(ContextSearchTool())
         _tool_registry_instance = registry
     return _tool_registry_instance

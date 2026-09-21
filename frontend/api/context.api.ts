@@ -1,5 +1,6 @@
 import { httpClient } from "./client";
-import { ContextSearchRequest, ContextSearchResponse, IndexDocumentRequest, MemorySearchRequest, MemorySearchResponse } from "./types";
+import { ContextSearchRequest, ContextSearchResponse } from "./types";
+import { ContextSnapshot } from "../types/contextSnapshot";
 
 export const contextApi = {
   searchContext: async (payload: ContextSearchRequest): Promise<ContextSearchResponse> => {
@@ -15,21 +16,15 @@ export const contextApi = {
     });
   },
 
-  indexDocument: async (payload: IndexDocumentRequest): Promise<{ status: string; chunks_indexed: number }> => {
-    return httpClient<{ status: string; chunks_indexed: number }>("/context/index", {
-      method: "POST",
-      body: JSON.stringify(payload),
-    });
+  // Real (Phase 68) -- latest templated summary of a project's real activity + real
+  // knowledge graph bottlenecks. 404 (thrown by httpClient as ApiError) if none exists yet.
+  getProjectSnapshot: async (projectId: string): Promise<ContextSnapshot> => {
+    return httpClient<ContextSnapshot>(`/context/projects/${projectId}/snapshot`);
   },
 
-  searchMemory: async (payload: MemorySearchRequest): Promise<MemorySearchResponse> => {
-    return httpClient<MemorySearchResponse>("/memory/search", {
+  regenerateProjectSnapshot: async (projectId: string): Promise<ContextSnapshot> => {
+    return httpClient<ContextSnapshot>(`/context/projects/${projectId}/snapshot`, {
       method: "POST",
-      body: JSON.stringify({
-        organization_id: payload.organization_id,
-        query: payload.query,
-        limit: payload.limit || 5,
-      }),
     });
   },
 };

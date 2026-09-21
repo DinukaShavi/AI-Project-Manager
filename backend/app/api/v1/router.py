@@ -3,7 +3,7 @@ from app.api.v1 import (
     auth, users, integrations, context, agents,
     tools, workflows, memory, planning, projects,
     tasks, analytics, workspaces, websockets, prompts, evaluations, model_router, costs, memory_lifecycle, observability, rate_limiter, security_guard, graph_evolution, tenant_isolation,
-    audit_logs, organizations, notifications, recommendations, events
+    audit_logs, organizations, notifications, recommendations, events, webhooks
 )
 
 api_router = APIRouter()
@@ -35,4 +35,5 @@ api_router.include_router(organizations.router, prefix="/organizations", tags=["
 api_router.include_router(notifications.router, prefix="/notifications", tags=["notifications"])
 api_router.include_router(recommendations.router, prefix="/recommendations", tags=["recommendations"])
 api_router.include_router(events.router, prefix="/events", tags=["events"])
+api_router.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
 api_router.include_router(websockets.router, tags=["realtime"])

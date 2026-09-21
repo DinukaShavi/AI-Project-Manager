@@ -1,23 +1,5 @@
 // TypeScript Models for Google Calendar Integration
 
-export interface CalendarEvent {
-  id: string;
-  summary: string;
-  start_time: string;
-  end_time: string;
-  organizer: string;
-  location?: string;
-  attendees_count: number;
-}
-
-export interface GoogleMeeting {
-  meeting_id: string;
-  title: string;
-  join_url: string;
-  start_time: string;
-  status: string;
-}
-
 export interface AvailabilitySlot {
   date: string;
   slot: string;
@@ -39,8 +21,8 @@ export interface CalendarSyncResponse {
 }
 
 // Real synced meeting, per GET /integrations/calendar/meetings (database_schema_design.md
-// section 19 `meetings` table) -- distinct from GoogleMeeting above, which is the hardcoded
-// GET /integrations/google/meetings mock's "Meet call link" shape.
+// section 19 `meetings` table). meet_link (Phase 65) is the event's real Google Meet join URL
+// when it has one -- null if the event has no conference attached.
 export interface SyncedMeeting {
   id: string;
   external_event_id: string;
@@ -48,6 +30,7 @@ export interface SyncedMeeting {
   start_time: string;
   end_time: string;
   attendees: string[];
+  meet_link: string | null;
 }
 
 export interface SyncedMeetingsResponse {
@@ -62,5 +45,8 @@ export interface CreateCalendarEventRequest {
   start_time: string;
   end_time: string;
   attendee_emails?: string[];
+  // Real org members picked from organizationApi.listMembersDirectory() (Phase 64) -- resolved
+  // to their real emails server-side.
+  attendee_user_ids?: string[];
   description?: string;
 }

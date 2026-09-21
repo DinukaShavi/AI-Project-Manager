@@ -35,6 +35,20 @@ export interface OrganizationMembersResponse {
   members: OrganizationMember[];
 }
 
+// Self-service directory (Phase 64) -- any org member, no roles exposed, for picking real
+// teammates as meeting attendees. Distinct from OrganizationMember/listMembers, which is
+// OrgAdmin-only and used by the Settings Console's role table.
+export interface MemberDirectoryEntry {
+  id: string;
+  email: string;
+  full_name: string;
+}
+
+export interface MemberDirectoryResponse {
+  members_count: number;
+  members: MemberDirectoryEntry[];
+}
+
 // Organization creation & team invitations
 export interface CreateOrganizationRequest {
   organization_name: string;
@@ -112,18 +126,6 @@ export interface LoginRequest {
   password: string;
 }
 
-export interface RegisterRequest {
-  email: string;
-  password: string;
-  full_name: string;
-  organization_name: string;
-}
-
-export interface UserUpdateRequest {
-  full_name?: string;
-  avatar_url?: string;
-}
-
 // Workspaces & Projects. Field names below match the real backend response shape
 // (backend/app/api/v1/workspaces.py, projects.py) exactly -- both list and create
 // responses key the id as `workspace_id`/`project_id`, never a bare `id`. `Project.workspace_id`
@@ -182,13 +184,6 @@ export interface CreateTaskRequest {
   story_points?: number;
 }
 
-export interface UpdateTaskRequest {
-  title?: string;
-  status?: string;
-  priority?: string;
-  story_points?: number;
-}
-
 // Analytics
 export interface SprintAnalytics {
   project_id: string;
@@ -204,24 +199,6 @@ export interface SprintAnalytics {
   risk_level: "low" | "medium" | "high" | "critical" | string;
 }
 
-export interface BurndownDataPoint {
-  day: number;
-  ideal_remaining: number;
-  actual_remaining: number;
-}
-
-export interface BurndownResponse {
-  project_id: string;
-  trajectory: BurndownDataPoint[];
-}
-
-export interface PredictiveCompletionForecast {
-  project_id: string;
-  forecast_days: number;
-  confidence_90_pct_days: number;
-  risk_score: number;
-}
-
 // Agents & Workflows
 export interface AgentExecutionRequest {
   agent_type: string;
@@ -234,12 +211,6 @@ export interface AgentExecutionResponse {
   execution_id: string;
   status: string;
   output: any;
-}
-
-export interface AgentPersona {
-  type: string;
-  role: string;
-  description: string;
 }
 
 export interface WorkflowExecutionRequest {
@@ -276,27 +247,6 @@ export interface ContextSearchResponse {
   results: ContextSearchResult[];
 }
 
-export interface IndexDocumentRequest {
-  organization_id: string;
-  source_type: string;
-  source_id: string;
-  text: string;
-  project_id?: string;
-  metadata?: Record<string, any>;
-}
-
-export interface MemorySearchRequest {
-  organization_id: string;
-  query: string;
-  limit?: number;
-}
-
-export interface MemorySearchResponse {
-  query: string;
-  results_count: number;
-  results: any[];
-}
-
 // Observability
 export interface TelemetrySpan {
   trace_id: string;
@@ -326,14 +276,6 @@ export interface SecurityScanResponse {
   action: "ALLOW" | "BLOCK" | string;
 }
 
-export interface SecuritySanitizeResponse {
-  status: "PASSED" | "BLOCKED" | string;
-  reason?: string;
-  risk_score: number;
-  sanitized_text: string;
-  pii_masked_counts: Record<string, number>;
-}
-
 // Rate Limiter
 export interface RateLimitCheckResponse {
   allowed: boolean;
@@ -350,14 +292,6 @@ export interface ModelMatrixResponse {
   routing_matrix: Record<string, any>;
 }
 
-export interface ModelRouteResponse {
-  task_category: string;
-  budget_tier: string;
-  selected_model: string;
-  secondary_fallback_model: string;
-  estimated_latency_ms: number;
-}
-
 // Cost Monitoring
 export interface CostSummaryResponse {
   organization_id: string;
@@ -368,15 +302,6 @@ export interface CostSummaryResponse {
   total_cache_hits_tokens: number;
   cost_by_agent: Record<string, number>;
   cost_by_model: Record<string, number>;
-}
-
-export interface CostAlertResponse {
-  organization_id: string;
-  alert_status: "NORMAL" | "WARNING_BUDGET_NEAR_LIMIT" | "CRITICAL_BUDGET_EXCEEDED" | string;
-  monthly_budget_usd: number;
-  current_spend_usd: number;
-  percentage_used: number;
-  requires_action: boolean;
 }
 
 // Knowledge Graph

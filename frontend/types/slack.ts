@@ -1,13 +1,5 @@
 // TypeScript Models for Slack Integration
 
-export interface SlackChannel {
-  id: string;
-  name: string;
-  is_private: boolean;
-  members_count: number;
-  topic?: string;
-}
-
 export interface SlackMessage {
   ts: string;
   user: string;
@@ -32,8 +24,11 @@ export interface SlackActivityByHour {
 
 export interface SlackActivityAnalysis {
   organization_id: string;
-  daily_message_volume: number;
-  sentiment_score: number;
+  channel_id: string;
+  message_count: number;
+  // Real LLM-derived sentiment (0.0 very negative -- 1.0 very positive), or null when there's
+  // nothing to analyze or the LLM call isn't configured/fails -- never a fabricated number.
+  sentiment_score: number | null;
   top_discussed_topics: string[];
   activity_by_hour: SlackActivityByHour[];
 }
@@ -50,7 +45,7 @@ export interface SlackChannelMappingResponse {
   status: string;
 }
 
-// Real channel discovery/mapping (distinct from the mock SlackChannel shape above)
+// Real channel discovery/mapping
 export interface DiscoveredSlackChannel {
   slack_channel_id: string;
   name: string;

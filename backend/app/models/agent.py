@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, ForeignKey, Text, UniqueConstraint
+from sqlalchemy import Column, String, Integer, ForeignKey, Text, UniqueConstraint, DateTime
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from app.db.base_class import Base
@@ -56,6 +56,38 @@ class ToolExecution(Base):
 
     # Relationships
     agent_execution = relationship("AgentExecution", back_populates="tool_executions")
+
+class ToolApproval(Base):
+    """A real, persisted human-in-the-loop approval grant for a high-risk tool call
+    (implementation_roadmap.md Milestone 12: "mutating tools wait for approval";
+    enterprise_ai_architecture_spec.md section 5 "Approval Queuer").
+
+    Before Phase 86 the approval gate accepted any non-empty `approval_token` string, so the
+    suspension was decorative. A grant is now non-forgeable because it is: a real secret
+    stored only as a SHA-256 hash, bound to one exact tool + parameter fingerprint,
+    single-use (`consumed`), organization-scoped, and time-limited.
+    """
+    __tablename__ = "tool_approvals"
+
+    organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True)
+    requested_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    approved_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+    tool_name = Column(String(100), nullable=False, index=True)
+    tool_parameters = Column(JSONB, nullable=False, default=dict)
+    # SHA-256 over canonical (sorted-key) JSON of the parameters, so an approval for one
+    # call can never be replayed against a different one.
+    parameters_fingerprint = Column(String(64), nullable=False)
+
+    # pending -> approved -> consumed, or pending -> rejected
+    status = Column(String(20), nullable=False, default="pending", index=True)
+    # SHA-256 of the issued one-time token. The raw token is returned to the approver once
+    # and never stored, so reading this table yields nothing usable.
+    approval_token_hash = Column(String(64), nullable=True, index=True)
+
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    consumed_at = Column(DateTime(timezone=True), nullable=True)
+
 
 class AgentPlan(Base):
     __tablename__ = "agent_plans"

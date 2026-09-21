@@ -17,6 +17,11 @@ class Integration(Base):
     # than guessed.
     external_workspace_id = Column(String(255), nullable=True)
     external_workspace_name = Column(String(255), nullable=True)
+    # Unguessable per-(org, provider) token identifying and authenticating this org's inbound
+    # webhook URL (/webhooks/{provider}/{webhook_token}) -- replaces trusting a client-supplied
+    # organization_id query parameter. Generated once when the Integration row is first
+    # created (IntegrationService.exchange_code_for_token) and never rotated automatically.
+    webhook_token = Column(String(64), unique=True, nullable=True, index=True)
 
     # Relationships
     organization = relationship("Organization", back_populates="integrations")

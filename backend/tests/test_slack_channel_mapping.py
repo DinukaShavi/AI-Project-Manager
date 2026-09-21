@@ -1,4 +1,5 @@
 import asyncio
+import secrets
 import uuid
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy import select
@@ -8,6 +9,7 @@ from app.main import app
 from app.models.tenant import Organization, Workspace, User
 from app.models.project import Project, SlackChannelMapping
 from app.models.event import Event
+from app.models.integration import Integration
 from app.db.session import SessionLocal
 from tests._auth_helpers import create_authenticated_headers
 
@@ -39,9 +41,16 @@ async def test_slack_channel_mapping_flow():
                 project_a = Project(organization_id=org_a_id, workspace_id=workspace_a.id, name="Slack Map Project A")
                 project_a2 = Project(organization_id=org_a_id, workspace_id=workspace_a.id, name="Slack Map Project A2")
                 session.add_all([project_a, project_a2])
-                await session.commit()
+                await session.flush()
                 project_a_id = project_a.id
                 project_a2_id = project_a2.id
+
+                # Real per-org webhook token (Phase 60) -- webhook auto-routing is now reached
+                # via /webhooks/slack/{token}, not a client-supplied organization_id.
+                slack_integration = Integration(organization_id=org_a_id, provider="slack", is_active=True, webhook_token=secrets.token_urlsafe(32))
+                session.add(slack_integration)
+                await session.commit()
+                slack_webhook_token = slack_integration.webhook_token
             print(f"Test orgs/workspace/projects created. Org A={org_a_id} Org B={org_b_id} Project A={project_a_id} Project A2={project_a2_id}")
 
             headers_a = await create_authenticated_headers(client, org_a_id)
@@ -123,15 +132,17 @@ async def test_slack_channel_mapping_flow():
 
             # 6. An incoming Slack webhook message on the mapped channel, with no explicit
             # project_id, must auto-route to the mapped project (project_a2, per Test 3).
+            # Reached via the real per-org webhook token URL (Phase 60), not a client-supplied
+            # organization_id query parameter.
             print("\nTest 6: Verifying webhook messages on a mapped channel auto-route to the correct project...")
             res = await client.post(
-                f"/api/v1/integrations/slack/webhook?organization_id={org_a_id}",
+                f"/api/v1/webhooks/slack/{slack_webhook_token}",
                 json={
                     "type": "event_callback",
                     "event": {"type": "message", "channel": channel_id, "user": "U0112233", "text": "Deploying now"},
                 },
             )
-            assert res.status_code == 200, f"Expected 200 (slack/webhook has no explicit status_code, unlike the other provider webhooks), got {res.status_code}: {res.text}"
+            assert res.status_code == 202, f"Expected 202, got {res.status_code}: {res.text}"
             event_id = res.json()["event_id"]
             async with SessionLocal() as session:
                 res_db = await session.execute(select(Event).where(Event.id == uuid.UUID(event_id)))
@@ -149,6 +160,9 @@ async def test_slack_channel_mapping_flow():
                     map_res = await session.execute(select(SlackChannelMapping).where(SlackChannelMapping.organization_id == oid))
                     for m in map_res.scalars().all():
                         await session.delete(m)
+                    integ_res = await session.execute(select(Integration).where(Integration.organization_id == oid))
+                    for integ in integ_res.scalars().all():
+                        await session.delete(integ)
                     await session.commit()
 
                     proj_res = await session.execute(select(Project).where(Project.organization_id == oid))

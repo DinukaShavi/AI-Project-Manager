@@ -8,8 +8,4 @@ export const rateLimiterApi = {
       body: JSON.stringify({ dimension, identifier, tokens_needed: tokensNeeded }),
     });
   },
-
-  getBucketStatus: async (dimension: string, identifier: string): Promise<RateLimitCheckResponse> => {
-    return httpClient<RateLimitCheckResponse>(`/rate-limit/status/${dimension}/${identifier}`);
-  },
 };
